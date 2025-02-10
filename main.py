@@ -14,10 +14,11 @@ config.read('config.ini')
 
 app = Client(
     "bot",
-    api_id=os.getenv('23151406'),
-    api_hash=os.getenv('0893a87614fae057c8efe7b85114f45a'),
-    bot_token=os.getenv('8074305463:AAGTS-J1ptk-q-k1m07ejzwPHCPWZhlLNyI')
+    api_id=os.getenv('API_ID'),
+    api_hash=os.getenv('API_HASH'),
+    bot_token=os.getenv('BOT_TOKEN')
 )
+
 
 async def request_channel_info(client, message):
     # طلب ايدي القناة
