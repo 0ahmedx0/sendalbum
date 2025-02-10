@@ -1,3 +1,4 @@
-telethon
-python-dotenv
-Flask
+pyrogram>=2.0.0
+python-dotenv>=0.19.0
+configparser>=5.3.0
+TgCrypto>=1.2.0
