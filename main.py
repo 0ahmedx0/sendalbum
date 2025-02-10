@@ -1,186 +1,165 @@
-from telethon.sync import TelegramClient
-from telethon.tl.types import DocumentAttributeFilename
-from telethon.errors import FloodWaitError
-from telethon.sessions import StringSession
-from alive import keep_alive
-from dotenv import load_dotenv
-import configparser
+from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import FloodWait, RPCError
+import re
 import asyncio
 import os
+import configparser
+from urllib.parse import urlparse
 
+# ثوابت البوت
+CHANNEL_ID_LOG = -100123456789  # ضع هنا ايدي قناة اللوج الثابتة
 config = configparser.ConfigParser()
-
 config.read('config.ini')
 
-load_dotenv()
+app = Client(
+    "bot",
+    api_id=os.getenv('API_ID'),
+    api_hash=os.getenv('API_HASH'),
+    bot_token=os.getenv('BOT_TOKEN')
+)
 
-# Your API details
-API_ID = int(os.getenv('API_ID', 0))
-API_HASH = os.getenv('API_HASH')
-SESSION = os.getenv('SESSION')
-CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))
-FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))
-
-# Global counter for deleted messages
-total_deleted_count = 0
-
-
-def edit_config(progress, current_msg_id, last_msg_id, remaining_msg):
-    # Read the existing config file
-    config.read('config.ini')
-    
-    # Add a "status" section if it doesn't exist
-    if "status" not in config:
-        config.add_section("status")
-    
-    # Update the values in the "status" section
-    config["status"]["progress"] = str(progress)
-    config["status"]["current_msg_id"] = str(current_msg_id)
-    config["status"]["last_msg_id"] = str(last_msg_id)
-    config["status"]["remaining_msg"] = str(remaining_msg)
-    config["status"]["total_delete_count"] = str(total_deleted_count)
-
-    # Write the changes back to the file
-    with open('config.ini', 'w') as configfile:
-        config.write(configfile)
-
-
-
-async def delete_message(client, chat, query_msg_id, duplicate_msg_ids):
-    global total_deleted_count
-    chunk_size = 99  # Telegram API limit
-    for i in range(0, len(duplicate_msg_ids), chunk_size):
-        chunk = duplicate_msg_ids[i:i + chunk_size]
-        try:
-            await client.delete_messages(chat, chunk)
-            total_deleted_count += len(chunk)  # Update global counter
-            print(f"ID {query_msg_id}: Deleted duplicate messages {chunk}")
-            await asyncio.sleep(2)  # Short delay to avoid spam
-        except FloodWaitError as e:
-            print(f"Rate-limited! Sleeping for {e.seconds} seconds...")
-            await asyncio.sleep(e.seconds + 1)
-        except Exception as e:
-            print(f"Error deleting messages {chunk}: {e}")
-
-
-async def update_delete_status(current_msg_id, last_msg_id):
-    if last_msg_id == 0:  # Avoid division by zero
-        return
-    
-    progress = round((current_msg_id / last_msg_id) * 100, 1)
-    global delete_status_message
-    
-    delete_status_message = (
-        f"Deletion Progress: {progress:.2f}%\n"
-        f"Processed Message ID: {current_msg_id}\n"
-        f"Last Message ID to Process: {last_msg_id}\n"
-        f"Remaining Messages: {last_msg_id - current_msg_id}\n"
-        f"{'-' * 50}"
+async def request_channel_info(client, message):
+    # طلب ايدي القناة
+    await client.send_message(
+        message.chat.id,
+        "⏳ يرجى إرسال ايدي القناة (بشكل مباشر أو رابطها):",
+        parse_mode=enums.ParseMode.MARKDOWN
     )
-    edit_config(progress, current_msg_id, last_msg_id, last_msg_id - current_msg_id)
-    return delete_status_message
-
-
-async def search_files(client, channel_id, first_msg_id):
-    global total_deleted_count
     try:
-        last_message = await client.get_messages(channel_id, limit=1)
-        if not last_message:
-            print("Error: Channel appears to be empty or inaccessible.")
-            return
+        channel_response = await client.listen.Message(filters.text, id=message.id, timeout=300)
+        channel_id = extract_channel_id(channel_response.text)
         
-        last_msg_id = last_message[0].id
+        # طلب رابط الرسالة الأولى
+        await client.send_message(
+            message.chat.id,
+            "📩 يرجى إرسال رابط الرسالة الأولى في القناة:",
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+        first_msg_response = await client.listen.Message(filters.text, id=message.id, timeout=300)
+        first_msg_id = extract_message_id(first_msg_response.text)
+        
+        return channel_id, first_msg_id
+        
+    except asyncio.TimeoutError:
+        await message.reply("🕒 انتهى الوقت المحدد للإدخال!")
+        return None, None
 
-        duplicate_msg_ids = []
+def extract_channel_id(text):
+    # استخراج ايدي القناة من الروابط أو النصوص
+    if text.startswith("https://t.me/"):
+        username = text.split("/")[-1]
+        return resolve_channel_id(username)
+    elif text.startswith("-100"):
+        return int(text)
+    else:
+        return int(text) if text.isdigit() else None
 
-        for current_msg_id in range(first_msg_id, last_msg_id):
-            try:
-                specific_message = await client.get_messages(channel_id, ids=current_msg_id)
-                if not specific_message or not specific_message.message:
-                    continue
+def extract_message_id(text):
+    # استخراج ايدي الرسالة من الرابط
+    if "https://t.me/" in text:
+        return int(text.split("/")[-1])
+    return int(text) if text.isdigit() else 0
 
-                # Extract file name from media
-                query_file_name = None
-                if specific_message.media and hasattr(specific_message.media, 'document'):
-                    for attribute in specific_message.media.document.attributes:
-                        if isinstance(attribute, DocumentAttributeFilename):
-                            query_file_name = attribute.file_name
-                            break
-
-                if not query_file_name:
-                    continue
-
-                # Search for duplicates
-                async for message in client.iter_messages(channel_id, search=query_file_name):
-                    if (
-                        message.file and 
-                        hasattr(message.file, 'name') and 
-                        message.file.name == query_file_name and 
-                        message.id != current_msg_id
-                    ):
-                        duplicate_msg_ids.append(message.id)
-
-                # Delete duplicates if found
-                if duplicate_msg_ids:
-                    await delete_message(client, channel_id, current_msg_id, duplicate_msg_ids)
-                    duplicate_msg_ids = []  # Reset after deletion
-                    await asyncio.sleep(3)  # Delay between batches
-
-            except FloodWaitError as e:
-                print(f"Rate-limited! Sleeping for {e.seconds} seconds...")
-                await asyncio.sleep(e.seconds + 1)
-            except Exception as e:
-                print(f"Error processing message ID {current_msg_id}: {e}")
-            
-            # Update progress
-            await update_delete_status(current_msg_id, last_msg_id)
-            await asyncio.sleep(1)
-
-    except Exception as e:
-        print("Critical Error in search_files function:")
-        print(str(e))
-
-    return f"Total Duplicate Messages Deleted: {total_deleted_count}"
-
-async def main():
-    global total_deleted_count
-    if not API_ID or not API_HASH or not SESSION or not CHANNEL_ID:
-        print("Error: Missing environment variables. Check .env file.")
-        return
-
-    print("Initializing Telegram client...")
-    client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
-
+async def log_deleted_message(client, message):
+    # تسجيل الرسالة المحذوفة في قناة اللوج
     try:
-        async with client:
-            await client.start()
-            print("Client connected successfully.")
-            print("Starting to search for duplicates...")
-            try:
-                await search_files(client, CHANNEL_ID, FIRST_MSG_ID)
-            
-            except Exception as e:
-                print("Unhandled exception during search_files:")
-                print(str(e))
-            
-            finally:
-                print("Shutting down...")
-                file_path = os.path.abspath("config.ini")
-                await client.send_file('me', file=file_path, caption=f"Total Duplicate Messages Deleted: {total_deleted_count}")
-                await client.disconnect()
-
+        log_text = f"🗑 **تم حذف رسالة مكررة**\n\n"
+        log_text += f"📄 اسم الملف: `{message.document.file_name}`\n"
+        log_text += f"🆔 ايدي الرسالة: `{message.id}`\n"
+        log_text += f"📅 التاريخ: `{message.date}`\n"
+        log_text += f"👤 المرسل: {message.from_user.mention if message.from_user else 'غير معروف'}"
+        
+        await client.send_message(
+            CHANNEL_ID_LOG,
+            log_text,
+            disable_web_page_preview=True
+        )
     except Exception as e:
-        print("Error during client initialization or execution:")
-        print(str(e))
+        print(f"Error logging message: {e}")
 
+@app.on_message(filters.command("start"))
+async def setup(client, message):
+    # بدء عملية الإعداد
+    channel_id, first_msg_id = await request_channel_info(client, message)
+    
+    if channel_id and first_msg_id:
+        # حفظ الإعدادات
+        config['SETTINGS'] = {
+            'CHANNEL_ID': str(channel_id),
+            'FIRST_MSG_ID': str(first_msg_id)
+        }
+        with open('config.ini', 'w') as f:
+            config.write(f)
+            
+        await message.reply(
+            f"✅ تم حفظ الإعدادات بنجاح!\n"
+            f"القناة: `{channel_id}`\n"
+            f"الرسالة الأولى: `{first_msg_id}`",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بدء التنظيف", callback_data="start_clean")]
+            ])
+        )
 
-if __name__ == '__main__':
-    print("Bot Started...")
-    keep_alive()
+@app.on_callback_query(filters.regex("start_clean"))
+async def start_cleaning(client, callback_query):
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n\n🚫 Bot manually stopped. Exiting...")
-    except Exception as e:
-        print("Critical Error at program startup:")
-        print(str(e))
+        # تحميل الإعدادات
+        channel_id = int(config['SETTINGS']['CHANNEL_ID'])
+        first_msg_id = int(config['SETTINGS']['FIRST_MSG_ID'])
+        
+        # بدء عملية الحذف
+        await process_cleaning(client, callback_query.message, channel_id, first_msg_id)
+        
+    except KeyError:
+        await callback_query.answer("❌ لم يتم إعداد القناة بعد!", show_alert=True)
+
+async def process_cleaning(client, message, channel_id, first_msg_id):
+    total_deleted = 0
+    try:
+        last_msg = (await client.get_chat_history(channel_id, limit=1))[0]
+        
+        progress_msg = await message.reply("⏳ جاري البدء في عملية التنظيف...")
+        
+        async for msg in client.get_chat_history(channel_id):
+            if msg.id < first_msg_id:
+                break
+                
+            if msg.document:
+                filename = msg.document.file_name
+                duplicates = []
+                
+                async for m in client.search_messages(channel_id, query=filename):
+                    if m.id != msg.id and m.document and m.document.file_name == filename:
+                        duplicates.append(m.id)
+                
+                if duplicates:
+                    await client.delete_messages(channel_id, duplicates)
+                    total_deleted += len(duplicates)
+                    
+                    # تسجيل الرسائل المحذوفة
+                    for dup_id in duplicates:
+                        dup_msg = await client.get_messages(channel_id, dup_id)
+                        await log_deleted_message(client, dup_msg)
+                    
+                    await progress_msg.edit_text(
+                        f"🚮 تم حذف {len(duplicates)} رسائل مكررة\n"
+                        f"🔄 جاري متابعة العملية..."
+                    )
+        
+        await progress_msg.edit_text(
+            f"✅ اكتملت العملية!\n"
+            f"إجمالي المحذوفات: {total_deleted}"
+        )
+        
+    except FloodWait as e:
+        await progress_msg.edit_text(f"⏳ يرجى الانتظار {e.value} ثانية بسبب الضغط")
+        await asyncio.sleep(e.value)
+        await process_cleaning(client, message, channel_id, first_msg_id)
+        
+    except RPCError as e:
+        await message.reply(f"❌ حدث خطأ: {e}")
+
+if __name__ == "__main__":
+    print("Bot is running...")
+    app.run()
