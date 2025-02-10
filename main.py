@@ -8,15 +8,15 @@ import configparser
 from urllib.parse import urlparse
 
 # ثوابت البوت
-CHANNEL_ID_LOG = -100123456789  # ضع هنا ايدي قناة اللوج الثابتة
+CHANNEL_ID_LOG = -1002432026957  # ضع هنا ايدي قناة اللوج الثابتة
 config = configparser.ConfigParser()
 config.read('config.ini')
 
 app = Client(
     "bot",
-    api_id=os.getenv('API_ID'),
-    api_hash=os.getenv('API_HASH'),
-    bot_token=os.getenv('BOT_TOKEN')
+    api_id=os.getenv('23151406'),
+    api_hash=os.getenv('0893a87614fae057c8efe7b85114f45a'),
+    bot_token=os.getenv('8074305463:AAGTS-J1ptk-q-k1m07ejzwPHCPWZhlLNyI')
 )
 
 async def request_channel_info(client, message):
