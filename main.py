@@ -72,19 +72,50 @@ async def log_deletion(message: Message):
     except Exception as e:
         print(f"فشل في التسجيل: {e}")
 
-@app.on_message(filters.command("start") & filters.private)
-async def start_handler(client: Client, message: Message):
-    """بدء العملية"""
+@app.on_message(filters.private & ~filters.command("start"))
+async def handle_input(client: Client, message: Message):
+    """معالجة إدخال المستخدم"""
     user_id = message.from_user.id
-    user_states[user_id] = UserState.AWAITING_CHANNEL
-    await message.reply(
-        "مرحبا! 👋\n"
-        "أرسل لي إيدي القناة أو رابطها:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("إلغاء العملية", callback_data="cancel")]
-        ])
-    )
+    state = user_states.get(user_id)
 
+    if not state:
+        return
+
+    if state == UserState.AWAITING_CHANNEL:
+        # معالجة إدخال القناة
+        channel_id = extract_channel_id(message.text)
+        print(f"تم استخراج معرف القناة: {channel_id}") # إضافة هذا السطر
+        if not channel_id:
+            return await message.reply("❌ الرابط غير صحيح، حاول مرة أخرى!")
+
+        try:
+            # التحقق من صلاحيات البوت
+            chat = await client.get_chat(channel_id)
+            if not chat.permissions.can_delete_messages:
+                return await message.reply("⚠️ البوت ليس لديه صلاحية الحذف في هذه القناة!")
+        except Exception as e:
+            return await message.reply(f"❌ خطأ في الوصول إلى القناة: {str(e)}")
+
+        user_states[user_id] = UserState.AWAITING_FIRST_MSG
+        config['SETTINGS']['CHANNEL_ID'] = str(channel_id)
+        await message.reply("📩 أرسل الآن رابط الرسالة الأولى:")
+
+    elif state == UserState.AWAITING_FIRST_MSG:
+        # معالجة إدخال الرسالة الأولى
+        first_msg_id = extract_message_id(message.text)
+        print(f"تم استخراج معرف الرسالة الأولى: {first_msg_id}") # إضافة هذا السطر
+        config['SETTINGS']['FIRST_MSG_ID'] = str(first_msg_id)
+
+        with open('config.ini', 'w') as f:
+            config.write(f)
+
+        del user_states[user_id]
+        await message.reply(
+            "✅ تم حفظ الإعدادات بنجاح!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بدء التنظيف الآن ▶️", callback_data="start_clean")]
+            ])
+        )
 @app.on_message(filters.private & ~filters.command("start"))
 async def handle_input(client: Client, message: Message):
     """معالجة إدخال المستخدم"""
