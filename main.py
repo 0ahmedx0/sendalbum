@@ -10,26 +10,23 @@ load_dotenv()
 # إعدادات تيليجرام من البيئة
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # يمكن أن تكون سلسلة الجلسة أو اسم ملف الجلسة
+SESSION = os.getenv("SESSION")  # سلسلة الجلسة الطويلة
 SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))       # القناة المصدر
 DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))         # معرف أول رسالة للبدء
 
 async def collect_albums(client, source_channel, first_msg_id):
     """
-    يجمع الرسائل التي تنتمي إلى ألبومات (التي تمتلك الخاصية grouped_id)
+    يجمع جميع الرسائل التي تنتمي إلى ألبومات (التي تمتلك الخاصية grouped_id)
     ويعيد قاموساً بالشكل: { grouped_id: [الرسائل] }
     
-    يتم استخدام get_chat_history بدلاً من iter_history في Pyrogram.
+    يتم جلب الرسائل باستخدام get_chat_history ثم ترتيبها تصاعديًا.
     """
     albums = {}
-    # نحصل على جميع الرسائل بدءًا من first_msg_id، مع reverse=True لضمان الترتيب الصحيح
-    messages = await client.get_chat_history(
-        chat_id=source_channel,
-        offset_id=first_msg_id,
-        reverse=True,
-        limit=10000  # يمكن تعديل العدد حسب احتياجاتك
-    )
+    # الحصول على الرسائل بدءًا من FIRST_MSG_ID (يُرجى تعديل limit حسب حجم القناة)
+    messages = await client.get_chat_history(chat_id=source_channel, offset_id=first_msg_id, limit=10000)
+    # ترتيب الرسائل تصاعديًا حسب معرف الرسالة
+    messages = sorted(messages, key=lambda m: m.message_id)
     for message in messages:
         if message.grouped_id:
             albums.setdefault(message.grouped_id, []).append(message)
@@ -48,12 +45,11 @@ async def transfer_album(client, album_messages):
             media_group.append(InputMediaVideo(media=msg.video.file_id, caption=msg.caption or ""))
         else:
             print(f"⚠️ الرسالة {msg.message_id} ليست من نوع photo أو video، يتم تجاهلها.")
-    
     if not media_group:
         print("⚠️ لا توجد وسائط مناسبة في هذا الألبوم، يتم تخطيه...")
         return
-
     try:
+        # إرسال الألبوم باستخدام send_media_group (داخل Pyrogram send_media_group يُنفذ عبر send_file مع group=True)
         await client.send_media_group(chat_id=DESTINATION_CHANNEL, media=media_group)
         print(f"✅ تم إرسال ألبوم يحتوي على {len(media_group)} وسائط إلى القناة الوجهة.")
     except Exception as e:
@@ -62,7 +58,7 @@ async def transfer_album(client, album_messages):
 async def process_albums(client, source_channel):
     """
     يجمع ألبومات الرسائل من القناة المصدر ثم ينقل كل ألبوم باستخدام transfer_album.
-    بعد كل 6 ألبومات يتم تأخير 15 ثانية لتجنب الحظر.
+    بعد كل 6 ألبومات يتم إضافة تأخير 15 ثانية لتجنب الحظر.
     """
     print("🔍 جاري تجميع الألبومات...")
     albums = await collect_albums(client, source_channel, FIRST_MSG_ID)
@@ -80,6 +76,7 @@ async def process_albums(client, source_channel):
             print(f"📄 رسالة فردية (غير ألبوم) يتم تجاهلها.")
 
 async def main():
+    # استخدم اسم جلسة مختصر "my_session" وتمرير سلسلة الجلسة عبر session_string
     async with Client("my_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
         print("🚀 العميل متصل بنجاح.")
         await process_albums(app, SOURCE_CHANNEL)
