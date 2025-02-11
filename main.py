@@ -6,10 +6,10 @@ from pyrogram.types import InputMediaVideo
 
 # 🔹 إعدادات البوت
 API_ID = int(os.getenv("API_ID", 123456))  # استبدل 123456 بـ API_ID الحقيقي
-API_HASH = os.getenv("API_HASH", "your_api_hash_here")  # ضع API_HASH الحقيقي
+API_HASH = os.getenv("API_HASH",)  # ضع API_HASH الحقيقي
 SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")  # استبدل بـ String Session الحقيقي
-SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL", -1001234567890))  # ضع معرف القناة المصدر
-DESTINATION_CHANNEL = int(os.getenv("DESTINATION_CHANNEL", -1009876543210))  # ضع معرف القناة الوجهة
+SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID",))  # ضع معرف القناة المصدر
+DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG",))  # ضع معرف القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))  # ضع معرف أول رسالة (أو 0 لجميع الرسائل)
 
 async def collect_albums(client, source_channel, first_msg_id):
