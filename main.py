@@ -44,74 +44,89 @@ async def forward_and_delete_messages(client, source_chat, destination_chat, dup
             await client.forward_messages(destination_chat, chunk, from_peer=source_chat)
             await client.delete_messages(source_chat, chunk)
             total_deleted_count += len(chunk)
-            print(f"Forwarded and deleted duplicate messages {chunk}")
+            print(f"✅ Forwarded and deleted duplicate messages {chunk}")
             await asyncio.sleep(2)
         except FloodWaitError as e:
-            print(f"Rate-limited! Sleeping for {e.seconds} seconds...")
+            print(f"⏳ تم تجاوز الحد! الانتظار {e.seconds} ثانية...")
             await asyncio.sleep(e.seconds + 1)
         except Exception as e:
-            print(f"Error processing messages {chunk}: {e}")
+            print(f"⚠️ Error processing messages {chunk}: {e}")
 
 async def update_delete_status(current_msg_id, last_msg_id):
     if last_msg_id == 0:
         return
     progress = round((current_msg_id / last_msg_id) * 100, 1)
     edit_config(progress, current_msg_id, last_msg_id, last_msg_id - current_msg_id)
-    print(f"Progress: {progress:.2f}% - Processing message ID: {current_msg_id}")
+    print(f"📌 تقدم العملية: {progress:.2f}% - معالجة الرسالة ذات المعرف: {current_msg_id}")
 
 async def search_files(client, channel_id, first_msg_id):
+    """
+    البحث عن الرسائل التي تحتوي على ملفات ثم تحديد الرسائل المكررة بناءً على الحجم فقط.
+    يتم تحويل الرسائل المكررة إلى قناة السجل قبل حذفها من القناة الأصلية.
+    """
     global total_deleted_count
     try:
         last_message = await client.get_messages(channel_id, limit=1)
         if not last_message:
-            print("Error: Channel is empty or unavailable.")
-            return "No messages found."
+            print("🚫 خطأ: القناة فارغة أو غير متاحة.")
+            return "لم يتم العثور على رسائل."
         last_msg_id = last_message[0].id
 
         for current_msg_id in range(first_msg_id, last_msg_id + 1):
             try:
                 specific_message = await client.get_messages(channel_id, ids=current_msg_id)
-                if not specific_message or not specific_message.message:
+                if not specific_message or not specific_message.media:
                     continue
+
+                # استخراج حجم الملف فقط
+                query_file_size = None
+                query_file_name = "غير معروف"
                 
-                query_file_name = None
-                if specific_message.media and hasattr(specific_message.media, 'document'):
+                if hasattr(specific_message.media, 'document'):
+                    query_file_size = specific_message.media.document.size
                     for attribute in specific_message.media.document.attributes:
                         if isinstance(attribute, DocumentAttributeFilename):
-                            query_file_name = attribute.file_name
+                            query_file_name = attribute.file_name  # الاحتفاظ باسم الملف للطباعة فقط
                             break
-                
-                if not query_file_name:
+
+                if query_file_size is None:
                     continue
-                
+
                 duplicate_msg_ids = []
-                async for message in client.iter_messages(channel_id, search=query_file_name):
-                    if message.file and hasattr(message.file, 'name') and message.file.name == query_file_name and message.id != current_msg_id:
+                async for message in client.iter_messages(channel_id):
+                    if (message.file and hasattr(message.file, 'size') and 
+                        message.file.size == query_file_size and  # التحقق من الحجم فقط
+                        message.id != current_msg_id):
+
                         duplicate_msg_ids.append(message.id)
-                
+
                 if duplicate_msg_ids:
+                    print(f"📂 ملف مكرر بحجم {query_file_size} باختيار الرسالة {current_msg_id} (اسم الملف: {query_file_name})")
                     await forward_and_delete_messages(client, channel_id, CHANNEL_ID_LOG, duplicate_msg_ids)
                     await asyncio.sleep(3)
             except FloodWaitError as e:
-                print(f"Rate-limited! Sleeping for {e.seconds} seconds...")
+                print(f"⏳ تم تجاوز الحد! الانتظار {e.seconds} ثانية...")
                 await asyncio.sleep(e.seconds + 1)
             except Exception as e:
-                print(f"Error processing message ID {current_msg_id}: {e}")
+                print(f"⚠️ خطأ في معالجة الرسالة بالمعرف {current_msg_id}: {e}")
             
             await update_delete_status(current_msg_id, last_msg_id)
             await asyncio.sleep(1)
+
     except Exception as e:
-        print("Critical error in search_files:", str(e))
-    return f"Total duplicate messages deleted: {total_deleted_count}"
+        print("❌ خطأ حرج في دالة search_files:")
+        print(str(e))
+
+    return f"📌 إجمالي عدد الرسائل المكررة المحذوفة: {total_deleted_count}"
 
 async def main():
     async with TelegramClient(StringSession(SESSION), API_ID, API_HASH) as client:
-        print("Client connected successfully.")
+        print("🚀 العميل متصل بنجاح.")
         result = await search_files(client, CHANNEL_ID, FIRST_MSG_ID)
         file_path = os.path.abspath("config.ini")
-        await client.send_file('me', file=file_path, caption=f"Total deleted messages: {total_deleted_count}")
+        await client.send_file('me', file=file_path, caption=f"📌 إجمالي الرسائل المكررة المحذوفة: {total_deleted_count}")
         print(result)
 
 if __name__ == '__main__':
-    print("Starting bot...")
+    print("🔹 بدء تشغيل البوت...")
     asyncio.run(main())
