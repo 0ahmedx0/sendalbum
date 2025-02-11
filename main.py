@@ -98,6 +98,15 @@ async def handle_input(client: Client, message: Message):
         # معالجة إدخال القناة
         channel_id = extract_channel_id(message.text)
         print(f"تم استخراج معرف القناة: {channel_id}") # إضافة هذا السطر
+        print(f"تم استخراج معرف القناة: {channel_id}")
+
+        try:
+            chat = await client.get_chat(channel_id)    
+            print(f"✅ تم الوصول للقناة بنجاح: {chat.title} (ID: {chat.id})")
+                except Exception as e:
+            print(f"❌ فشل في الوصول للقناة: {e}")
+                return await message.reply(f"❌ لا يمكن الوصول إلى القناة! تأكد أن البوت عضو فيها.\nالخطأ: {str(e)}")
+
         if not channel_id:
             return await message.reply("❌ الرابط غير صحيح، حاول مرة أخرى!")
 
