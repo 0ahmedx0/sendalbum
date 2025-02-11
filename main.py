@@ -1,16 +1,16 @@
+import asyncio
+import os
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 from pyrogram.types import InputMediaVideo
-import asyncio
-import os
 
-# تحميل إعدادات البيئة
-API_ID = int(os.getenv('API_ID', 0))
-API_HASH = os.getenv('API_HASH')
-SESSION = os.getenv('SESSION')
-SOURCE_CHANNEL = int(os.getenv('SOURCE_CHANNEL', 0))
-DESTINATION_CHANNEL = int(os.getenv('DESTINATION_CHANNEL', 0))
-FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))
+# 🔹 إعدادات البوت
+API_ID = int(os.getenv("API_ID", 123456))  # استبدل 123456 بـ API_ID الحقيقي
+API_HASH = os.getenv("API_HASH", "your_api_hash_here")  # ضع API_HASH الحقيقي
+SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")  # استبدل بـ String Session الحقيقي
+SOURCE_CHANNEL = int(os.getenv("SOURCE_CHANNEL", -1001234567890))  # ضع معرف القناة المصدر
+DESTINATION_CHANNEL = int(os.getenv("DESTINATION_CHANNEL", -1009876543210))  # ضع معرف القناة الوجهة
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))  # ضع معرف أول رسالة (أو 0 لجميع الرسائل)
 
 async def collect_albums(client, source_channel, first_msg_id):
     """
@@ -64,7 +64,7 @@ async def forward_albums(client, albums, destination_channel):
                 print(f"⚠️ خطأ أثناء إرسال الألبوم {grouped_id}: {e}")
 
 async def main():
-    async with Client(SESSION, api_id=API_ID, api_hash=API_HASH) as app:
+    async with Client("bot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
         print("🚀 العميل متصل بنجاح.")
         
         print("🔍 جاري تجميع الألبومات...")
@@ -73,6 +73,6 @@ async def main():
         print(f"📁 تم العثور على {len(albums)} ألبوم. جاري التحويل...")
         await forward_albums(app, albums, DESTINATION_CHANNEL)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
     asyncio.run(main())
