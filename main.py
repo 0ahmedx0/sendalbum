@@ -19,9 +19,11 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
     يجمع الرسائل التي تحتوي على media_group_id من تاريخ الدردشة.
     يبدأ من offset = FIRST_MSG_ID - 1 ويتوقف عند وصول رسالة برقم أقل من FIRST_MSG_ID.
+    تم إضافة تأخير 5 ثوانٍ بعد كل دفعة من الرسائل لتقليل معدل الطلبات.
     """
     albums = {}
     async for message in client.get_chat_history(chat_id, offset_id=first_msg_id - 1, limit=100):
+        await asyncio.sleep(5)  # تأخير 5 ثوانٍ بعد كل دفعة من الرسائل
         if message.id < first_msg_id:
             break
         if message.media_group_id:
@@ -34,6 +36,7 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
     مع استخدام InputMediaVideo مع supports_streaming في حال كانت الوسائط فيديو.
     ثم يُرسل الألبوم باستخدام send_media_group.
     """
+    # ترتيب الرسائل من الأقدم إلى الأحدث
     album_messages_sorted = sorted(album_messages, key=lambda m: m.id)
     media_group = []
     for index, message in enumerate(album_messages_sorted):
