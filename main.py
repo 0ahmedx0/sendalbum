@@ -21,7 +21,7 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     يبدأ من offset = FIRST_MSG_ID - 1 ويتوقف عند وصول رسالة برقم أقل من FIRST_MSG_ID.
     """
     albums = {}
-    async for message in client.get_chat_history(chat_id, offset_id=first_msg_id - 1):
+    async for message in client.get_chat_history(chat_id, offset_id=first_msg_id - 1, limit=100):
         if message.id < first_msg_id:
             break
         if message.media_group_id:
@@ -34,7 +34,6 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
     مع استخدام InputMediaVideo مع supports_streaming في حال كانت الوسائط فيديو.
     ثم يُرسل الألبوم باستخدام send_media_group.
     """
-    # ترتيب الرسائل من الأقدم إلى الأحدث
     album_messages_sorted = sorted(album_messages, key=lambda m: m.id)
     media_group = []
     for index, message in enumerate(album_messages_sorted):
@@ -69,7 +68,7 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
 async def process_albums(client: Client, source_invite: str, dest_invite: str):
     """
     ينضم للقناة المصدر والوجهة باستخدام روابط الدعوة،
-    ثم يجمع الألبومات من القناة المصدر ويرسل كل ألبوم على حدة مع انتظار 5 ثوانٍ بين كل إرسال.
+    ثم يجمع الألبومات من القناة المصدر ويرسل كل ألبوم على حدة مع انتظار 10 ثوانٍ بين كل إرسال.
     كما يتم ترتيب الألبومات بناءً على أقدم رسالة في كل ألبوم.
     """
     print("🔍 جاري تجميع الألبومات...")
@@ -102,7 +101,7 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         if len(messages) > 1:
             print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.id for msg in messages]}")
             await transfer_album(client, source_chat.id, dest_chat.id, messages)
-            await asyncio.sleep(10)
+            await asyncio.sleep(10)  # تأخير 10 ثوانٍ بين إرسال كل ألبوم
         else:
             print(f"⚠️ ألبوم {media_group_id} يحتوي على رسالة واحدة فقط. يتم تخطيه.")
 
