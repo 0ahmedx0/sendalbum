@@ -76,24 +76,33 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
     print("🔍 جاري تجميع الألبومات...")
 
     try:
-        source_chat = await client.join_chat(source_invite)
-        print("✅ تم الانضمام للقناة المصدر")
-    except errors.UserAlreadyParticipant:
-        source_chat = await client.get_chat(source_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة المصدر")
-    except Exception as e:
-        print(f"⚠️ لم يتم الانضمام للقناة المصدر: {e}")
-        return
+    dest_chat = await client.join_chat(dest_invite)
+    print("✅ تم الانضمام للقناة الوجهة")
+except errors.FloodWait as e:
+    print(f"⚠️ Flood Wait: الانتظار {e.value} ثانية قبل إعادة المحاولة.")
+    await asyncio.sleep(e.value + 5)  # إضافة 5 ثوانٍ إضافية للمساعدة
+    dest_chat = await client.join_chat(dest_invite)
+except errors.UserAlreadyParticipant:
+    dest_chat = await client.get_chat(dest_invite)
+    print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
+except Exception as e:
+    print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
+    return
 
-    try:
-        dest_chat = await client.join_chat(dest_invite)
-        print("✅ تم الانضمام للقناة الوجهة")
-    except errors.UserAlreadyParticipant:
-        dest_chat = await client.get_chat(dest_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
-    except Exception as e:
-        print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
-        return
+try:
+    dest_chat = await client.join_chat(dest_invite)
+    print("✅ تم الانضمام للقناة الوجهة")
+except errors.FloodWait as e:
+    print(f"⚠️ Flood Wait: الانتظار {e.value} ثانية قبل إعادة المحاولة.")
+    await asyncio.sleep(e.value + 5)  # إضافة 5 ثوانٍ إضافية للمساعدة
+    dest_chat = await client.join_chat(dest_invite)
+except errors.UserAlreadyParticipant:
+    dest_chat = await client.get_chat(dest_invite)
+    print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
+except Exception as e:
+    print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
+    return
+
 
     albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
