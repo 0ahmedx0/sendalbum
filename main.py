@@ -9,21 +9,23 @@ load_dotenv()
 
 def convert_channel_id(channel_id_str):
     """
-    إذا كان المعرف يبدأ بـ "-100" يتم إزالة هذه البادئة لتحويله إلى رقم موجب كما هو مطلوب في Pyrogram.
+    إذا كان المعرف يبدأ بـ "-100" يتم إزالة هذه البادئة.
+    ملاحظة: في Pyrogram يُفضّل استخدام معرف القناة كما هو (سواء كان سالباً أم موجباً)
+    أو استخدام اسم القناة (username).
     """
     s = str(channel_id_str)
-    if s.startswith("-100"):
-        return int(s[4:])
-    return int(s)
+    # يمكنك تعديل هذه الدالة حسب نوع المدخلات لديك؛ في هذا المثال سنقوم بإرجاع السلسلة كما هي
+    return channel_id_str
 
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
+# استخدم المعرف كما هو أو يمكنك استخدام اسم القناة إذا كانت القناة عامة
 CHANNEL_ID = convert_channel_id(os.getenv("CHANNEL_ID", "0"))         # القناة المصدر
 CHANNEL_ID_LOG = convert_channel_id(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
 
-async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
+async def collect_albums(client: Client, chat_id, first_msg_id: int):
     """
     يجمع الرسائل التي تنتمي إلى ألبومات (تحتوي على media_group_id)
     من تاريخ الدردشة باستخدام get_chat_history مع offset_id = FIRST_MSG_ID - 1.
@@ -37,7 +39,7 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
             albums.setdefault(message.media_group_id, []).append(message)
     return albums
 
-async def transfer_album(client: Client, source_chat: int, destination_chat: int, album_messages: list):
+async def transfer_album(client: Client, source_chat, destination_chat, album_messages: list):
     """
     ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
     يقوم بترتيب الرسائل تصاعدياً وتجميع الوسائط لإرسالها كمجموعة.
@@ -70,8 +72,10 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
     except Exception as ex:
         print(f"⚠️ خطأ في إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]}: {ex}")
 
-async def process_albums(client: Client, channel_id: int):
+async def process_albums(client: Client, channel_id):
     print("🔍 جاري تجميع الألبومات...")
+    # التأكد من حل بيانات القناة عبر استدعاء get_chat
+    await client.get_chat(channel_id)
     albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
     tasks = []
