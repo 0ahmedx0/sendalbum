@@ -1,86 +1,78 @@
-import os
-import asyncio
-from dotenv import load_dotenv
 from pyrogram import Client
-from pyrogram.types import InputMediaPhoto, InputMediaVideo
+from pyrogram.errors import FloodWait
+from pyrogram.types import InputMediaVideo
+import asyncio
+import os
 
 # تحميل إعدادات البيئة
-load_dotenv()
-
-# إعدادات تيليجرام من البيئة
-API_ID = int(os.getenv("API_ID", 0))
-API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # سلسلة الجلسة الطويلة
-SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))       # القناة المصدر
-DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # القناة الوجهة
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))         # معرف أول رسالة للبدء
+API_ID = int(os.getenv('API_ID', 0))
+API_HASH = os.getenv('API_HASH')
+SESSION = os.getenv('SESSION')
+SOURCE_CHANNEL = int(os.getenv('SOURCE_CHANNEL', 0))
+DESTINATION_CHANNEL = int(os.getenv('DESTINATION_CHANNEL', 0))
+FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))
 
 async def collect_albums(client, source_channel, first_msg_id):
     """
     يجمع جميع الرسائل التي تنتمي إلى ألبومات (التي تمتلك الخاصية grouped_id)
     ويعيد قاموساً بالشكل: { grouped_id: [الرسائل] }
-    
-    يتم جلب الرسائل باستخدام get_chat_history ثم ترتيبها تصاعديًا.
     """
     albums = {}
-    # الحصول على الرسائل بدءًا من FIRST_MSG_ID (يُرجى تعديل limit حسب حجم القناة)
-    messages = await client.get_chat_history(chat_id=source_channel, offset_id=first_msg_id, limit=10000)
+    messages = []
+
+    async for message in client.get_chat_history(chat_id=source_channel, offset_id=first_msg_id, limit=10000):
+        messages.append(message)
+
     # ترتيب الرسائل تصاعديًا حسب معرف الرسالة
     messages = sorted(messages, key=lambda m: m.message_id)
+
     for message in messages:
         if message.grouped_id:
             albums.setdefault(message.grouped_id, []).append(message)
+
     return albums
 
-async def transfer_album(client, album_messages):
+async def forward_albums(client, albums, destination_channel):
     """
-    يقوم بنقل ألبوم الرسائل إلى القناة الوجهة باستخدام send_media_group.
-    لا يتم تنزيل الملفات محلياً.
+    يعيد توجيه الألبومات إلى القناة الوجهة باستخدام send_media_group
+    ويضيف تأخير 15 ثانية عند تحويل ألبومات تحتوي على 6 مقاطع أو أكثر
     """
-    media_group = []
-    for msg in album_messages:
-        if msg.photo:
-            media_group.append(InputMediaPhoto(media=msg.photo.file_id, caption=msg.caption or ""))
-        elif msg.video:
-            media_group.append(InputMediaVideo(media=msg.video.file_id, caption=msg.caption or ""))
-        else:
-            print(f"⚠️ الرسالة {msg.message_id} ليست من نوع photo أو video، يتم تجاهلها.")
-    if not media_group:
-        print("⚠️ لا توجد وسائط مناسبة في هذا الألبوم، يتم تخطيه...")
-        return
-    try:
-        # إرسال الألبوم باستخدام send_media_group (داخل Pyrogram send_media_group يُنفذ عبر send_file مع group=True)
-        await client.send_media_group(chat_id=DESTINATION_CHANNEL, media=media_group)
-        print(f"✅ تم إرسال ألبوم يحتوي على {len(media_group)} وسائط إلى القناة الوجهة.")
-    except Exception as e:
-        print(f"⚠️ خطأ في إرسال الألبوم: {e}")
-
-async def process_albums(client, source_channel):
-    """
-    يجمع ألبومات الرسائل من القناة المصدر ثم ينقل كل ألبوم باستخدام transfer_album.
-    بعد كل 6 ألبومات يتم إضافة تأخير 15 ثانية لتجنب الحظر.
-    """
-    print("🔍 جاري تجميع الألبومات...")
-    albums = await collect_albums(client, source_channel, FIRST_MSG_ID)
-    print(f"تم العثور على {len(albums)} ألبوم.")
-    counter = 0
     for grouped_id, messages in albums.items():
-        if len(messages) > 1:
-            print(f"📂 ألبوم {grouped_id} يحتوي على {len(messages)} رسالة.")
-            await transfer_album(client, messages)
-            counter += 1
-            if counter % 6 == 0:
-                print("⏳ انتظر 15 ثانية لتجنب الحظر...")
-                await asyncio.sleep(15)
-        else:
-            print(f"📄 رسالة فردية (غير ألبوم) يتم تجاهلها.")
+        media_group = []
+        
+        for message in messages:
+            if message.video:
+                media_group.append(InputMediaVideo(
+                    message.video.file_id,
+                    caption=message.caption if message.caption else ""
+                ))
+
+        if media_group:
+            try:
+                await client.send_media_group(destination_channel, media_group)
+                print(f"✅ تم تحويل الألبوم {grouped_id} بنجاح")
+
+                # تأخير 15 ثانية إذا كان الألبوم يحتوي على 6 مقاطع أو أكثر
+                if len(media_group) >= 6:
+                    print("⏳ الانتظار 15 ثانية لتجنب الحظر...")
+                    await asyncio.sleep(15)
+
+            except FloodWait as e:
+                print(f"⏳ تم تجاوز الحد! الانتظار {e.value} ثانية...")
+                await asyncio.sleep(e.value + 1)
+            except Exception as e:
+                print(f"⚠️ خطأ أثناء إرسال الألبوم {grouped_id}: {e}")
 
 async def main():
-    # استخدم اسم جلسة مختصر "my_session" وتمرير سلسلة الجلسة عبر session_string
-    async with Client("my_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
+    async with Client(SESSION, api_id=API_ID, api_hash=API_HASH) as app:
         print("🚀 العميل متصل بنجاح.")
-        await process_albums(app, SOURCE_CHANNEL)
+        
+        print("🔍 جاري تجميع الألبومات...")
+        albums = await collect_albums(app, SOURCE_CHANNEL, FIRST_MSG_ID)
+        
+        print(f"📁 تم العثور على {len(albums)} ألبوم. جاري التحويل...")
+        await forward_albums(app, albums, DESTINATION_CHANNEL)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     print("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
     asyncio.run(main())
