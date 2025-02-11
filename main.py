@@ -12,89 +12,90 @@ load_dotenv()
 API_ID = int(os.getenv('API_ID', 0))
 API_HASH = os.getenv('API_HASH')
 SESSION = os.getenv('SESSION')  
-CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))  
-CHANNEL_ID_LOG = int(os.getenv('CHANNEL_ID_LOG', 0))  
-FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))  
+CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))         # القناة المصدر
+CHANNEL_ID_LOG = int(os.getenv('CHANNEL_ID_LOG', 0))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
+FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))       # معرف أول رسالة للبدء
 
-# قائمة لحساب الرسائل المحذوفة
-total_deleted_count = 0
-
-async def collect_files(client, channel_id, first_msg_id):
+async def collect_albums(client, channel_id, first_msg_id):
     """
-    يجمع جميع الملفات وأحجامها في قاموس { الحجم: [معرفات الرسائل] }
+    يجمع جميع الرسائل التي تنتمي إلى ألبومات (بوجود الخاصية grouped_id)
+    ويعيد قاموساً بالشكل: { grouped_id: [معرفات الرسائل] }
     """
-    file_dict = {}  # { حجم الملف: [معرفات الرسائل] }
-
+    albums = {}
     async for message in client.iter_messages(channel_id, min_id=first_msg_id):
-        if message.file and hasattr(message.file, 'size'):
-            file_size = message.file.size
-            if file_size in file_dict:
-                file_dict[file_size].append(message.id)
-            else:
-                file_dict[file_size] = [message.id]
+        if message.grouped_id:
+            albums.setdefault(message.grouped_id, []).append(message.id)
+    return albums
 
-    return file_dict
-
-async def forward_delete_and_send_original_link(client, source_chat, destination_chat, duplicate_msg_ids):
+async def transfer_album_and_send_original_link(client, source_chat, destination_chat, album_msg_ids):
     """
-    - ينقل الرسائل المكررة إلى القناة الأخرى
-    - يحذف الرسائل المكررة
-    - يرسل رابط الرسالة الأصلية بعد الحذف
+    يقوم بتحويل ألبوم من الرسائل دون تنزيل الفيديوهات محلياً.
+    يتم جمع الكائنات (Document) من كل رسالة في الألبوم واستخدام send_file مع group=True.
+    بعد ذلك، يتم إرسال رابط الرسالة الأصلية (أول رسالة في الألبوم) إلى القناة الوجهة.
     """
-    global total_deleted_count
-    chunk_size = 99  # الحد الأقصى للرسائل التي يمكن معالجتها في دفعة واحدة
-
-    # أول رسالة هي الأصلية، الباقي سيتم حذفه
-    original_msg_id = duplicate_msg_ids[0]
-    duplicate_msg_ids = duplicate_msg_ids[1:]
-
-    for i in range(0, len(duplicate_msg_ids), chunk_size):
-        chunk = duplicate_msg_ids[i:i + chunk_size]
+    # الرسالة الأولى تعتبر الأصلية
+    original_msg_id = album_msg_ids[0]
+    files = []
+    for msg_id in album_msg_ids:
         try:
-            # تحويل الرسائل المكررة
-            await client.forward_messages(destination_chat, chunk, from_peer=source_chat)
-            print(f"✅ Forwarded duplicate messages {chunk}")
-            await asyncio.sleep(5)  # تأخير 5 ثوانٍ بعد كل تحويل
-
-            # حذف الرسائل المكررة
-            await client.delete_messages(source_chat, chunk)
-            total_deleted_count += len(chunk)
-            print(f"🗑 Deleted duplicate messages {chunk}")
-
-        except FloodWaitError as e:
-            print(f"⏳ تم تجاوز الحد! الانتظار {e.seconds} ثانية...")
-            await asyncio.sleep(e.seconds + 1)
+            msg = await client.get_messages(source_chat, ids=msg_id)
+            if msg and msg.media and hasattr(msg.media, 'document'):
+                # جمع الكائن Document الموجود في الرسالة
+                files.append(msg.media.document)
+            else:
+                print(f"⚠️ الرسالة {msg_id} لا تحتوي على وثيقة مناسبة.")
         except Exception as e:
-            print(f"⚠️ خطأ في حذف الرسائل {chunk}: {e}")
+            print(f"⚠️ خطأ في جلب الرسالة {msg_id}: {e}")
 
-    # إرسال رابط الرسالة الأصلية بعد حذف المكررات
-    original_link = f"https://t.me/c/{str(source_chat)[4:]}/{original_msg_id}"
+    if not files:
+        print("⚠️ لا توجد ملفات لإرسالها في هذا الألبوم، يتم تخطيه...")
+        return
+
+    try:
+        # إرسال الألبوم باستخدام send_file مع group=True (يعادل send_media_group)
+        await client.send_file(destination_chat, file=files, group=True)
+        print(f"✅ تم إرسال ألبوم الرسائل {album_msg_ids} إلى القناة الوجهة")
+    except FloodWaitError as e:
+        print(f"⏳ تجاوز الحد: الانتظار {e.seconds} ثانية...")
+        await asyncio.sleep(e.seconds + 1)
+    except Exception as e:
+        print(f"⚠️ خطأ في إرسال ألبوم الرسائل {album_msg_ids}: {e}")
+
+    # تكوين رابط الرسالة الأصلية؛ نفترض أن معرف القناة يبدأ بـ -100، لذا نزيلها للحصول على الرابط الصحيح
+    src_str = str(source_chat)
+    if src_str.startswith("-100"):
+        link_channel = src_str[4:]
+    else:
+        link_channel = src_str
+    original_link = f"https://t.me/c/{link_channel}/{original_msg_id}"
     try:
         await client.send_message(destination_chat, f"📌 الرسالة الأصلية: {original_link}")
-        print(f"🔗 Sent original message link: {original_link}")
+        print(f"🔗 تم إرسال رابط الرسالة الأصلية: {original_link}")
     except Exception as e:
         print(f"⚠️ خطأ في إرسال رابط الرسالة الأصلية: {e}")
 
-async def delete_duplicates(client, channel_id):
+async def process_albums(client, channel_id):
     """
-    يبحث عن الملفات المكررة حسب الحجم ويحذفها
+    يجمع ألبومات الرسائل من القناة المصدر، ثم ينقل كل ألبوم باستخدام الدالة transfer_album_and_send_original_link.
     """
-    global total_deleted_count
-    print("🔍 جاري تجميع الملفات...")
-
-    file_dict = await collect_files(client, channel_id, FIRST_MSG_ID)
+    print("🔍 جاري تجميع الألبومات...")
+    albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
+    print(f"تم العثور على {len(albums)} ألبوم.")
     
-    for file_size, msg_ids in file_dict.items():
-        if len(msg_ids) > 1:  # إذا وجد أكثر من رسالة بنفس الحجم
-            print(f"📂 ملفات مكررة بحجم {file_size} باختيار {msg_ids[0]}")
-            await forward_delete_and_send_original_link(client, channel_id, CHANNEL_ID_LOG, msg_ids)
-    
-    print(f"📌 إجمالي الرسائل المحذوفة: {total_deleted_count}")
+    tasks = []
+    for grouped_id, msg_ids in albums.items():
+        if len(msg_ids) > 1:  # نعتبر الألبوم إذا كان يحتوي على أكثر من رسالة
+            print(f"📂 ألبوم {grouped_id} يحتوي على الرسائل: {msg_ids}")
+            tasks.append(transfer_album_and_send_original_link(client, channel_id, CHANNEL_ID_LOG, msg_ids))
+    if tasks:
+        await asyncio.gather(*tasks)
+    else:
+        print("لم يتم العثور على ألبومات.")
 
 async def main():
     async with TelegramClient(StringSession(SESSION), API_ID, API_HASH) as client:
         print("🚀 العميل متصل بنجاح.")
-        await delete_duplicates(client, CHANNEL_ID)
+        await process_albums(client, CHANNEL_ID)
 
 if __name__ == '__main__':
     print("🔹 بدء تشغيل البوت...")
