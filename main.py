@@ -3,7 +3,7 @@ import os
 import logging
 from pyrogram import Client
 from pyrogram.errors import FloodWait
-from pyrogram.types import InputMediaVideo
+from pyrogram.types import InputMediaVideo, InputMediaPhoto, InputMediaDocument
 
 # إعداد logging لتسجيل الأحداث مع مستويات مختلفة من التفاصيل
 logging.basicConfig(
@@ -11,13 +11,13 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# 🔹 إعدادات البوت: تأكد من تعيين المتغيرات المناسبة أو تعديل القيم مباشرة
+# 🔹 إعدادات البوت: قم بتعيين المتغيرات المناسبة أو تعديل القيم مباشرة
 API_ID = int(os.getenv("API_ID", 123456))               # استبدل 123456 بـ API_ID الحقيقي
 API_HASH = os.getenv("API_HASH")                        # ضع API_HASH الحقيقي
 SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")         # استبدل بـ String Session الصحيح
 SOURCE_CHANNEL = os.getenv("CHANNEL_ID", None)          # معرف القناة المصدر (رقمي أو @username)
 DESTINATION_CHANNEL = os.getenv("CHANNEL_ID_LOG", None)   # معرف القناة الوجهة (رقمي أو @username)
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))          # بدء القراءة من رسالة معينة (0 لجميع الرسائل)
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))          # بدء القراءة من الرسالة ذات المعرف المحدد (0 لجميع الرسائل)
 
 # التحقق من صحة الإعدادات الأساسية
 if not API_HASH:
@@ -65,24 +65,29 @@ async def collect_albums(client: Client, source_channel: str, first_msg_id: int)
 async def forward_albums(client: Client, albums: dict, destination_channel: str):
     """
     يعيد توجيه الألبومات إلى القناة الوجهة باستخدام send_media_group.
+    يدعم أنواع الوسائط: الفيديو والصور والمستندات.
     في حال احتوى الألبوم على 6 وسائط أو أكثر يتم إضافة تأخير لتفادي الحظر.
     """
     for media_group_id, messages in albums.items():
         media_group = []
 
         for message in messages:
-            # معالجة مقاطع الفيديو؛ يمكن تعديل الشرط إذا رغبت في إرسال أنواع وسائط أخرى
+            caption = message.caption if message.caption else ""
+            # التحقق من نوع الوسائط في الرسالة
             if message.video:
-                caption = message.caption if message.caption else ""
-                media = InputMediaVideo(
-                    media=message.video.file_id,
-                    caption=caption
-                )
+                media = InputMediaVideo(media=message.video.file_id, caption=caption)
                 media_group.append(media)
+            elif message.photo:
+                media = InputMediaPhoto(media=message.photo.file_id, caption=caption)
+                media_group.append(media)
+            elif message.document:
+                media = InputMediaDocument(media=message.document.file_id, caption=caption)
+                media_group.append(media)
+            else:
+                logging.info(f"⚠️ الرسالة {message.message_id} لا تحتوي على نوع وسائط مدعوم.")
 
         if media_group:
             try:
-                # إرسال مجموعة الوسائط إلى القناة الوجهة
                 await client.send_media_group(destination_channel, media=media_group)
                 logging.info(f"✅ تم تحويل الألبوم {media_group_id} بنجاح.")
 
