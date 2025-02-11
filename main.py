@@ -1,120 +1,103 @@
 import asyncio
 import os
-import logging
-from pyrogram import Client
-from pyrogram.errors import FloodWait
-from pyrogram.types import InputMediaVideo, InputMediaPhoto, InputMediaDocument
+from dotenv import load_dotenv
+from pyrogram import Client, errors
+from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 
-# إعداد logging لتسجيل الأحداث مع مستويات مختلفة من التفاصيل
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# تحميل إعدادات البيئة من ملف .env
+load_dotenv()
 
-# 🔹 إعدادات البوت: قم بتعيين المتغيرات المناسبة أو تعديل القيم مباشرة
-API_ID = int(os.getenv("API_ID", 123456))               # استبدل 123456 بـ API_ID الحقيقي
-API_HASH = os.getenv("API_HASH")                        # ضع API_HASH الحقيقي
-SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")         # استبدل بـ String Session الصحيح
-SOURCE_CHANNEL = os.getenv("CHANNEL_ID", None)          # معرف القناة المصدر (رقمي أو @username)
-DESTINATION_CHANNEL = os.getenv("CHANNEL_ID_LOG", None)   # معرف القناة الوجهة (رقمي أو @username)
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))          # بدء القراءة من الرسالة ذات المعرف المحدد (0 لجميع الرسائل)
+# إعدادات Pyrogram
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH")
+SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))         # القناة المصدر
+CHANNEL_ID_LOG = int(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
 
-# التحقق من صحة الإعدادات الأساسية
-if not API_HASH:
-    logging.error("لم يتم توفير API_HASH. يرجى تعيين متغير البيئة API_HASH.")
-    exit(1)
-if not SOURCE_CHANNEL:
-    logging.error("لم يتم توفير معرف القناة المصدر. يرجى تعيين متغير البيئة CHANNEL_ID.")
-    exit(1)
-if not DESTINATION_CHANNEL:
-    logging.error("لم يتم توفير معرف القناة الوجهة. يرجى تعيين متغير البيئة CHANNEL_ID_LOG.")
-    exit(1)
-
-async def collect_albums(client: Client, source_channel: str, first_msg_id: int) -> dict:
+async def collect_albums(client, chat_id, first_msg_id):
     """
-    يجمع جميع الرسائل التي تنتمي إلى ألبومات باستخدام الخاصية media_group_id.
-    يُعيد قاموساً بالشكل: { media_group_id: [الرسائل] }
+    يجمع جميع الرسائل التي تنتمي إلى ألبومات (بوجود الخاصية media_group_id)
+    ويعيد قاموسًا بالشكل: { media_group_id: [رسائل الألبوم] }
     """
     albums = {}
-    messages = []
-
-    # تحديث بيانات الدردشات لضمان جلب المعلومات المحلية
-    async for _ in client.get_dialogs():
-        pass
-
-    try:
-        chat = await client.get_chat(source_channel)
-    except Exception as e:
-        logging.error(f"خطأ أثناء جلب بيانات القناة {source_channel}: {e}")
-        return albums
-
-    # جلب تاريخ الرسائل من القناة
-    async for message in client.get_chat_history(chat_id=chat.id, offset_id=first_msg_id, limit=10000):
-        messages.append(message)
-
-    # ترتيب الرسائل تصاعدياً حسب معرف الرسالة
-    messages.sort(key=lambda m: m.message_id)
-
-    # تجميع الرسائل التي تنتمي إلى ألبومات باستخدام media_group_id
-    for message in messages:
+    async for message in client.iter_history(chat_id, min_id=first_msg_id):
         if message.media_group_id:
             albums.setdefault(message.media_group_id, []).append(message)
-
     return albums
 
-async def forward_albums(client: Client, albums: dict, destination_channel: str):
+async def transfer_album(client, source_chat, destination_chat, album_messages):
     """
-    يعيد توجيه الألبومات إلى القناة الوجهة باستخدام send_media_group.
-    يدعم أنواع الوسائط: الفيديو والصور والمستندات.
-    في حال احتوى الألبوم على 6 وسائط أو أكثر يتم إضافة تأخير لتفادي الحظر.
+    يقوم بتحويل ألبوم من الرسائل باستخدام دالة send_media_group الخاصة بـ Pyrogram.
+    يتم تجميع وسائط الرسائل وإرسالها كمجموعة دون تنزيل الملفات محلياً.
     """
+    # ترتيب الرسائل تصاعدياً بناءً على معرف الرسالة للحفاظ على الترتيب الأصلي
+    album_messages_sorted = sorted(album_messages, key=lambda m: m.message_id)
+    
+    media_group = []
+    for index, message in enumerate(album_messages_sorted):
+        input_media = None
+        # يتم تضمين التسمية التوضيحية فقط للرسالة الأولى
+        caption = message.caption if index == 0 and message.caption else ""
+        if message.photo:
+            input_media = InputMediaPhoto(media=message.photo.file_id, caption=caption)
+        elif message.video:
+            input_media = InputMediaVideo(media=message.video.file_id, caption=caption)
+        elif message.document:
+            input_media = InputMediaDocument(media=message.document.file_id, caption=caption)
+        else:
+            print(f"⚠️ الرسالة {message.message_id} لا تحتوي على وسائط قابلة للإرسال ضمن المجموعة.")
+            continue
+        
+        media_group.append(input_media)
+    
+    if not media_group:
+        print("⚠️ لا توجد وسائط لإرسالها في هذا الألبوم، يتم تخطيه...")
+        return
+    
+    try:
+        await client.send_media_group(chat_id=destination_chat, media=media_group)
+        print(f"✅ تم إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]} إلى القناة الوجهة")
+    except errors.FloodWait as e:
+        print(f"⏳ تجاوز الحد: الانتظار {e.x} ثانية...")
+        await asyncio.sleep(e.x + 1)
+        try:
+            await client.send_media_group(chat_id=destination_chat, media=media_group)
+        except Exception as e:
+            print(f"⚠️ خطأ في إعادة إرسال الألبوم: {e}")
+    except Exception as e:
+        print(f"⚠️ خطأ في إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]}: {e}")
+
+async def process_albums(client, channel_id):
+    """
+    يجمع ألبومات الرسائل من القناة المصدر، ثم ينقل كل ألبوم باستخدام الدالة transfer_album.
+    """
+    print("🔍 جاري تجميع الألبومات...")
+    albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
+    print(f"تم العثور على {len(albums)} ألبوم.")
+    
+    tasks = []
     for media_group_id, messages in albums.items():
-        media_group = []
-
-        for message in messages:
-            caption = message.caption if message.caption else ""
-            # التحقق من نوع الوسائط في الرسالة
-            if message.video:
-                media = InputMediaVideo(media=message.video.file_id, caption=caption)
-                media_group.append(media)
-            elif message.photo:
-                media = InputMediaPhoto(media=message.photo.file_id, caption=caption)
-                media_group.append(media)
-            elif message.document:
-                media = InputMediaDocument(media=message.document.file_id, caption=caption)
-                media_group.append(media)
-            else:
-                logging.info(f"⚠️ الرسالة {message.message_id} لا تحتوي على نوع وسائط مدعوم.")
-
-        if media_group:
-            try:
-                await client.send_media_group(destination_channel, media=media_group)
-                logging.info(f"✅ تم تحويل الألبوم {media_group_id} بنجاح.")
-
-                # تأخير 15 ثانية إذا كان الألبوم يحتوي على 6 وسائط أو أكثر لتفادي الحظر
-                if len(media_group) >= 6:
-                    logging.info("⏳ الانتظار 15 ثانية لتجنب الحظر...")
-                    await asyncio.sleep(15)
-
-            except FloodWait as e:
-                logging.warning(f"⏳ تجاوز الحد! الانتظار {e.x} ثانية...")
-                await asyncio.sleep(e.x + 1)
-            except Exception as exc:
-                logging.error(f"⚠️ خطأ أثناء إرسال الألبوم {media_group_id}: {exc}")
+        if len(messages) > 1:  # نعتبر الرسائل ألبومًا إذا كان يحتوي على أكثر من رسالة
+            print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.message_id for msg in messages]}")
+            tasks.append(transfer_album(client, channel_id, CHANNEL_ID_LOG, messages))
+    
+    if tasks:
+        await asyncio.gather(*tasks)
+    else:
+        print("لم يتم العثور على ألبومات.")
 
 async def main():
-    """
-    الدالة الرئيسية لإنشاء عميل Pyrogram وتنفيذ عملية جمع وإعادة توجيه الألبومات.
-    """
-    async with Client("bot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
-        logging.info("🚀 تم الاتصال بالعميل بنجاح.")
-        logging.info("🔍 جاري تجميع الألبومات من القناة المصدر...")
-
-        albums = await collect_albums(app, SOURCE_CHANNEL, FIRST_MSG_ID)
-        logging.info(f"📁 تم العثور على {len(albums)} ألبوم. بدء عملية التحويل...")
-
-        await forward_albums(app, albums, DESTINATION_CHANNEL)
+    # إنشاء عميل Pyrogram باستخدام السلسلة الجلسة (session string)
+    async with Client(
+        "my_session",  # يمكن استخدام أي اسم للجلسة
+        api_id=API_ID,
+        api_hash=API_HASH,
+        session_string=SESSION
+    ) as client:
+        print("🚀 العميل متصل بنجاح.")
+        await process_albums(client, CHANNEL_ID)
 
 if __name__ == "__main__":
-    logging.info("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
+    print("🔹 بدء تشغيل البوت...")
     asyncio.run(main())
