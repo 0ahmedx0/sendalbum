@@ -1,16 +1,34 @@
 import asyncio
 import os
+import logging
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 from pyrogram.types import InputMediaVideo
 
+# إعداد logging لتسجيل الأحداث مع مستويات مختلفة من التفاصيل
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 # 🔹 إعدادات البوت
 API_ID = int(os.getenv("API_ID", 123456))  # استبدل 123456 بـ API_ID الحقيقي
-API_HASH = os.getenv("API_HASH",)  # ضع API_HASH الحقيقي
+API_HASH = os.getenv("API_HASH")  # ضع API_HASH الحقيقي
 SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")  # استبدل بـ String Session الحقيقي
-SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID",))  # ضع معرف القناة المصدر
-DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG",))  # ضع معرف القناة الوجهة
+SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))  # ضع معرف القناة المصدر
+DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # ضع معرف القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))  # ضع معرف أول رسالة (أو 0 لجميع الرسائل)
+
+# التحقق من صحة الإعدادات الأساسية
+if not API_HASH:
+    logging.error("لم يتم توفير API_HASH. يرجى تعيين متغير البيئة API_HASH.")
+    exit(1)
+if not SOURCE_CHANNEL:
+    logging.error("لم يتم توفير معرف القناة المصدر. يرجى تعيين متغير البيئة CHANNEL_ID.")
+    exit(1)
+if not DESTINATION_CHANNEL:
+    logging.error("لم يتم توفير معرف القناة الوجهة. يرجى تعيين متغير البيئة CHANNEL_ID_LOG.")
+    exit(1)
 
 async def collect_albums(client, source_channel, first_msg_id):
     """
@@ -20,7 +38,9 @@ async def collect_albums(client, source_channel, first_msg_id):
     albums = {}
     messages = []
 
-    async for message in client.get_chat_history(chat_id=source_channel, offset_id=first_msg_id, limit=10000):
+    # الحصول على بيانات القناة أولاً لضمان تسجيلها محلياً
+    chat = await client.get_chat(source_channel)
+    async for message in client.get_chat_history(chat_id=chat.id, offset_id=first_msg_id, limit=10000):
         messages.append(message)
 
     # ترتيب الرسائل تصاعديًا حسب معرف الرسالة
@@ -39,8 +59,9 @@ async def forward_albums(client, albums, destination_channel):
     """
     for grouped_id, messages in albums.items():
         media_group = []
-        
+
         for message in messages:
+            # معالجة مقاطع الفيديو فقط كما هو مطلوب
             if message.video:
                 media_group.append(InputMediaVideo(
                     message.video.file_id,
@@ -50,29 +71,29 @@ async def forward_albums(client, albums, destination_channel):
         if media_group:
             try:
                 await client.send_media_group(destination_channel, media_group)
-                print(f"✅ تم تحويل الألبوم {grouped_id} بنجاح")
+                logging.info(f"✅ تم تحويل الألبوم {grouped_id} بنجاح.")
 
-                # تأخير 15 ثانية إذا كان الألبوم يحتوي على 6 مقاطع أو أكثر
+                # تأخير 15 ثانية إذا كان الألبوم يحتوي على 6 مقاطع أو أكثر لتجنب الحظر
                 if len(media_group) >= 6:
-                    print("⏳ الانتظار 15 ثانية لتجنب الحظر...")
+                    logging.info("⏳ الانتظار 15 ثانية لتجنب الحظر...")
                     await asyncio.sleep(15)
 
             except FloodWait as e:
-                print(f"⏳ تم تجاوز الحد! الانتظار {e.value} ثانية...")
+                logging.warning(f"⏳ تم تجاوز الحد! الانتظار {e.value} ثانية...")
                 await asyncio.sleep(e.value + 1)
             except Exception as e:
-                print(f"⚠️ خطأ أثناء إرسال الألبوم {grouped_id}: {e}")
+                logging.error(f"⚠️ خطأ أثناء إرسال الألبوم {grouped_id}: {e}")
 
 async def main():
     async with Client("bot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
-        print("🚀 العميل متصل بنجاح.")
-        
-        print("🔍 جاري تجميع الألبومات...")
+        logging.info("🚀 العميل متصل بنجاح.")
+
+        logging.info("🔍 جاري تجميع الألبومات...")
         albums = await collect_albums(app, SOURCE_CHANNEL, FIRST_MSG_ID)
-        
-        print(f"📁 تم العثور على {len(albums)} ألبوم. جاري التحويل...")
+
+        logging.info(f"📁 تم العثور على {len(albums)} ألبوم. جاري التحويل...")
         await forward_albums(app, albums, DESTINATION_CHANNEL)
 
 if __name__ == "__main__":
-    print("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
+    logging.info("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
     asyncio.run(main())
