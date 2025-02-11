@@ -9,8 +9,8 @@ load_dotenv()
 
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # يجب أن تكون سلسلة الجلسة (session string)
-# روابط الدعوة للقنوات الخاصة (يمكن أن تكون روابط دعوة صالحة للانضمام)
+SESSION = os.getenv("SESSION")  # سلسلة الجلسة
+# روابط الدعوة للقنوات الخاصة (يجب أن تكون روابط دعوة صالحة للانضمام)
 SOURCE_INVITE = os.getenv("CHANNEL_ID", "")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
@@ -32,7 +32,7 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
 async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int, album_messages: list):
     """
     ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
-    يتم ترتيب الرسائل تصاعديًا وتجميع الوسائط لإرسالها كمجموعة.
+    يتم ترتيب الرسائل تصاعدياً وتجميع الوسائط لإرسالها كمجموعة.
     """
     album_messages_sorted = sorted(album_messages, key=lambda m: m.id)
     media_group = []
@@ -41,9 +41,13 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
         if message.photo:
             media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
         elif message.video:
-            media_group.append(InputMediaVideo(media=message.video.file_id, caption=caption))
+            media_group.append(InputMediaVideo(media=message.video.file_id, caption=caption, supports_streaming=True))
         elif message.document:
-            media_group.append(InputMediaDocument(media=message.document.file_id, caption=caption))
+            # إذا كان الملف عبارة عن فيديو (من خلال الـ mime_type) نستخدم InputMediaVideo لضمان تجميعه
+            if message.document.mime_type and message.document.mime_type.startswith("video/"):
+                media_group.append(InputMediaVideo(media=message.document.file_id, caption=caption, supports_streaming=True))
+            else:
+                media_group.append(InputMediaDocument(media=message.document.file_id, caption=caption))
         else:
             print(f"⚠️ الرسالة {message.id} لا تحتوي على وسائط قابلة للإرسال ضمن المجموعة.")
     if not media_group:
@@ -86,7 +90,7 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
         return
 
-    # استخدام معرفات القنوات من الكائنات المرجعة لاسترجاع الرسائل
+    # استخدام معرفات القنوات لاسترجاع الرسائل من القناة المصدر
     albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
     tasks = []
