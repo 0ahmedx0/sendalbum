@@ -7,11 +7,20 @@ from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 # تحميل إعدادات البيئة من ملف .env
 load_dotenv()
 
+def convert_channel_id(channel_id_str):
+    """
+    إذا كان المعرف يبدأ بـ "-100" يتم إزالة هذه البادئة لتحويله إلى رقم موجب كما هو مطلوب في Pyrogram.
+    """
+    s = str(channel_id_str)
+    if s.startswith("-100"):
+        return int(s[4:])
+    return int(s)
+
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # يجب أن تكون السلسلة الجلسة (session string)
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))         # القناة المصدر
-CHANNEL_ID_LOG = int(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
+SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
+CHANNEL_ID = convert_channel_id(os.getenv("CHANNEL_ID", "0"))         # القناة المصدر
+CHANNEL_ID_LOG = convert_channel_id(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
 
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
@@ -33,12 +42,9 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
     ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
     يقوم بترتيب الرسائل تصاعدياً وتجميع الوسائط لإرسالها كمجموعة.
     """
-    # ترتيب الرسائل تصاعدياً للحفاظ على الترتيب الأصلي عند الإرسال
     album_messages_sorted = sorted(album_messages, key=lambda m: m.message_id)
-    
     media_group = []
     for index, message in enumerate(album_messages_sorted):
-        # تضمين التسمية التوضيحية فقط للرسالة الأولى
         caption = message.caption if index == 0 and message.caption else ""
         if message.photo:
             media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
@@ -48,11 +54,9 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
             media_group.append(InputMediaDocument(media=message.document.file_id, caption=caption))
         else:
             print(f"⚠️ الرسالة {message.message_id} لا تحتوي على وسائط قابلة للإرسال ضمن المجموعة.")
-    
     if not media_group:
         print("⚠️ لا توجد وسائط لإرسالها في هذا الألبوم، يتم تخطيه...")
         return
-    
     try:
         await client.send_media_group(chat_id=destination_chat, media=media_group)
         print(f"✅ تم إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]} إلى القناة الوجهة")
@@ -67,19 +71,14 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
         print(f"⚠️ خطأ في إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]}: {ex}")
 
 async def process_albums(client: Client, channel_id: int):
-    """
-    يجمع ألبومات الرسائل من القناة المصدر وينقلها إلى القناة الوجهة.
-    """
     print("🔍 جاري تجميع الألبومات...")
     albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
-    
     tasks = []
     for media_group_id, messages in albums.items():
         if len(messages) > 1:
             print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.message_id for msg in messages]}")
             tasks.append(transfer_album(client, channel_id, CHANNEL_ID_LOG, messages))
-    
     if tasks:
         await asyncio.gather(*tasks)
     else:
