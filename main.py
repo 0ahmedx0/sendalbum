@@ -11,12 +11,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# 🔹 إعدادات البوت
+# 🔹 إعدادات البوت: استبدل القيم بالقيم الحقيقية أو عيّنها عبر متغيرات البيئة
 API_ID = int(os.getenv("API_ID", 123456))  # استبدل 123456 بـ API_ID الحقيقي
 API_HASH = os.getenv("API_HASH")  # ضع API_HASH الحقيقي
 SESSION = os.getenv("SESSION", "ضع_الجلسة_هنا")  # استبدل بـ String Session الحقيقي
-SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))  # ضع معرف القناة المصدر
-DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # ضع معرف القناة الوجهة
+SOURCE_CHANNEL = os.getenv("CHANNEL_ID", None)  # ضع معرف القناة المصدر (يمكن أن يكون معرف رقمي أو @username)
+DESTINATION_CHANNEL = os.getenv("CHANNEL_ID_LOG", None)  # ضع معرف القناة الوجهة (يمكن أن يكون معرف رقمي أو @username)
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))  # ضع معرف أول رسالة (أو 0 لجميع الرسائل)
 
 # التحقق من صحة الإعدادات الأساسية
@@ -38,13 +38,20 @@ async def collect_albums(client, source_channel, first_msg_id):
     albums = {}
     messages = []
 
-    # الحصول على بيانات القناة أولاً لضمان تسجيلها محلياً
-    chat = await client.get_chat(source_channel)
+    # تحديث بيانات الدردشات لضمان وجود بيانات الجلسة المحلية
+    await client.get_dialogs()
+
+    try:
+        chat = await client.get_chat(source_channel)
+    except Exception as e:
+        logging.error(f"خطأ أثناء جلب بيانات القناة {source_channel}: {e}")
+        return albums
+
     async for message in client.get_chat_history(chat_id=chat.id, offset_id=first_msg_id, limit=10000):
         messages.append(message)
 
     # ترتيب الرسائل تصاعديًا حسب معرف الرسالة
-    messages = sorted(messages, key=lambda m: m.message_id)
+    messages.sort(key=lambda m: m.message_id)
 
     for message in messages:
         if message.grouped_id:
