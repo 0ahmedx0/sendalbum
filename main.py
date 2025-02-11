@@ -7,18 +7,16 @@ from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 # تحميل إعدادات البيئة من ملف .env
 load_dotenv()
 
-# يتم استخدام المتغيرات كما هي؛ تأكد أن القنوات في ملف البيئة مكتوبة بالشكل الصحيح 
-# (مثلاً: يمكن أن تكون القنوات باسم المستخدم "username" أو رابط القناة "t.me/..." إذا كانت عامة)
+# إعدادات Pyrogram
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
-# يُفضّل استخدام اسم القناة (username) أو الرابط الخاص بها إذا كانت القناة عامة،
-# أما إذا كنت تستخدم المعرف العددي (مثل -1002336220556) فتأكد أن الحساب عضو فيها.
-SOURCE_CHANNEL = os.getenv("CHANNEL_ID", "")         # القناة المصدر
-DEST_CHANNEL = os.getenv("CHANNEL_ID_LOG", "")         # القناة الوجهة
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
+# روابط الدعوة للقنوات الخاصة (يجب أن تكون روابط صالحة للانضمام)
+SOURCE_INVITE = os.getenv("CHANNEL_ID", "")    # رابط دعوة القناة المصدر
+DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")        # رابط دعوة القناة الوجهة
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))  # معرف أول رسالة للبدء
 
-async def collect_albums(client: Client, chat_id, first_msg_id: int):
+async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
     يجمع الرسائل التي تنتمي إلى ألبومات (تحتوي على media_group_id)
     من تاريخ الدردشة باستخدام get_chat_history مع offset_id = FIRST_MSG_ID - 1.
@@ -32,10 +30,10 @@ async def collect_albums(client: Client, chat_id, first_msg_id: int):
             albums.setdefault(message.media_group_id, []).append(message)
     return albums
 
-async def transfer_album(client: Client, source_chat, destination_chat, album_messages: list):
+async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int, album_messages: list):
     """
     ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
-    يقوم بترتيب الرسائل تصاعديًا وتجميع الوسائط لإرسالها كمجموعة.
+    يقوم بترتيب الرسائل تصاعدياً وتجميع الوسائط لإرسالها كمجموعة.
     """
     album_messages_sorted = sorted(album_messages, key=lambda m: m.message_id)
     media_group = []
@@ -53,40 +51,45 @@ async def transfer_album(client: Client, source_chat, destination_chat, album_me
         print("⚠️ لا توجد وسائط لإرسالها في هذا الألبوم، يتم تخطيه...")
         return
     try:
-        await client.send_media_group(chat_id=destination_chat, media=media_group)
+        await client.send_media_group(chat_id=dest_chat_id, media=media_group)
         print(f"✅ تم إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]} إلى القناة الوجهة")
     except errors.FloodWait as e:
         print(f"⏳ تجاوز الحد: الانتظار {e.x} ثانية...")
         await asyncio.sleep(e.x + 1)
         try:
-            await client.send_media_group(chat_id=destination_chat, media=media_group)
+            await client.send_media_group(chat_id=dest_chat_id, media=media_group)
         except Exception as ex:
             print(f"⚠️ خطأ في إعادة إرسال الألبوم: {ex}")
     except Exception as ex:
         print(f"⚠️ خطأ في إرسال ألبوم الرسائل {[msg.message_id for msg in album_messages_sorted]}: {ex}")
 
-async def process_albums(client: Client, source_channel, dest_channel):
+async def process_albums(client: Client, source_invite: str, dest_invite: str):
     print("🔍 جاري تجميع الألبومات...")
 
-    # الانضمام إلى القناة المصدر والوجهة للتأكد من حل بياناتها بشكل صحيح
+    # الانضمام إلى القناة المصدر باستخدام رابط الدعوة
     try:
-        await client.join_chat(source_channel)
+        source_chat = await client.join_chat(source_invite)
         print("✅ تم الانضمام للقناة المصدر")
     except Exception as e:
         print(f"⚠️ لم يتم الانضمام للقناة المصدر: {e}")
+        return
+
+    # الانضمام إلى القناة الوجهة باستخدام رابط الدعوة
     try:
-        await client.join_chat(dest_channel)
+        dest_chat = await client.join_chat(dest_invite)
         print("✅ تم الانضمام للقناة الوجهة")
     except Exception as e:
         print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
+        return
 
-    albums = await collect_albums(client, source_channel, FIRST_MSG_ID)
+    # الآن نستخدم معرف القناة من الكائنات المرجعة (source_chat.id, dest_chat.id)
+    albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
     tasks = []
     for media_group_id, messages in albums.items():
         if len(messages) > 1:
             print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.message_id for msg in messages]}")
-            tasks.append(transfer_album(client, source_channel, dest_channel, messages))
+            tasks.append(transfer_album(client, source_chat.id, dest_chat.id, messages))
     if tasks:
         await asyncio.gather(*tasks)
     else:
@@ -94,13 +97,13 @@ async def process_albums(client: Client, source_channel, dest_channel):
 
 async def main():
     async with Client(
-        "my_session",  # يمكن استخدام أي اسم للجلسة
+        "my_session",  # يمكنك استخدام أي اسم للجلسة
         api_id=API_ID,
         api_hash=API_HASH,
         session_string=SESSION
     ) as client:
         print("🚀 العميل متصل بنجاح.")
-        await process_albums(client, SOURCE_CHANNEL, DEST_CHANNEL)
+        await process_albums(client, SOURCE_INVITE, DEST_INVITE)
 
 if __name__ == "__main__":
     print("🔹 بدء تشغيل البوت...")
