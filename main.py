@@ -10,16 +10,15 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")  # سلسلة الجلسة
-# روابط الدعوة للقنوات الخاصة (يجب أن تكون روابط دعوة صالحة للانضمام)
+# روابط الدعوة للقنوات الخاصة (يجب أن تكون روابط دعوة صالحة)
 SOURCE_INVITE = os.getenv("CHANNEL_ID", "")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
-    يجمع الرسائل التي تنتمي إلى ألبومات (تحتوي على media_group_id)
-    من تاريخ الدردشة باستخدام get_chat_history مع offset_id = FIRST_MSG_ID - 1.
-    يتم التوقف عن القراءة بمجرد وصول رسالة برقم أقل من FIRST_MSG_ID.
+    يجمع الرسائل التي تحتوي على media_group_id من تاريخ الدردشة.
+    يبدأ من offset = FIRST_MSG_ID - 1 ويتوقف عند وصول رسالة برقم أقل من FIRST_MSG_ID.
     """
     albums = {}
     async for message in client.get_chat_history(chat_id, offset_id=first_msg_id - 1):
@@ -31,9 +30,11 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
 
 async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int, album_messages: list):
     """
-    ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
-    يتم ترتيب الرسائل تصاعدياً وتجميع الوسائط لإرسالها كمجموعة.
+    يُرتب الرسائل في الألبوم تصاعدياً (من الأقدم إلى الأحدث) ويُجمع الوسائط في قائمة،
+    مع استخدام InputMediaVideo مع supports_streaming في حال كانت الوسائط فيديو.
+    ثم يُرسل الألبوم باستخدام send_media_group.
     """
+    # ترتيب الرسائل من الأقدم إلى الأحدث
     album_messages_sorted = sorted(album_messages, key=lambda m: m.id)
     media_group = []
     for index, message in enumerate(album_messages_sorted):
@@ -43,7 +44,6 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
         elif message.video:
             media_group.append(InputMediaVideo(media=message.video.file_id, caption=caption, supports_streaming=True))
         elif message.document:
-            # إذا كان الملف عبارة عن فيديو (من خلال الـ mime_type) نستخدم InputMediaVideo لضمان تجميعه
             if message.document.mime_type and message.document.mime_type.startswith("video/"):
                 media_group.append(InputMediaVideo(media=message.document.file_id, caption=caption, supports_streaming=True))
             else:
@@ -67,8 +67,13 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
         print(f"⚠️ خطأ في إرسال ألبوم الرسائل {[msg.id for msg in album_messages_sorted]}: {ex}")
 
 async def process_albums(client: Client, source_invite: str, dest_invite: str):
+    """
+    ينضم للقناة المصدر والوجهة باستخدام روابط الدعوة،
+    ثم يجمع الألبومات من القناة المصدر ويرسل كل ألبوم على حدة مع انتظار 5 ثوانٍ بين كل إرسال.
+    كما يتم ترتيب الألبومات بناءً على أقدم رسالة في كل ألبوم.
+    """
     print("🔍 جاري تجميع الألبومات...")
-    # محاولة الانضمام للقناة المصدر
+
     try:
         source_chat = await client.join_chat(source_invite)
         print("✅ تم الانضمام للقناة المصدر")
@@ -79,7 +84,6 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         print(f"⚠️ لم يتم الانضمام للقناة المصدر: {e}")
         return
 
-    # محاولة الانضمام للقناة الوجهة
     try:
         dest_chat = await client.join_chat(dest_invite)
         print("✅ تم الانضمام للقناة الوجهة")
@@ -90,18 +94,17 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
         return
 
-    # استخدام معرفات القنوات لاسترجاع الرسائل من القناة المصدر
     albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
-    tasks = []
-    for media_group_id, messages in albums.items():
+    # ترتيب الألبومات بناءً على أقدم رسالة في كل ألبوم (من الأقدم إلى الأحدث)
+    sorted_albums = sorted(albums.items(), key=lambda item: min(msg.id for msg in item[1]))
+    for media_group_id, messages in sorted_albums:
         if len(messages) > 1:
             print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.id for msg in messages]}")
-            tasks.append(transfer_album(client, source_chat.id, dest_chat.id, messages))
-    if tasks:
-        await asyncio.gather(*tasks)
-    else:
-        print("لم يتم العثور على ألبومات.")
+            await transfer_album(client, source_chat.id, dest_chat.id, messages)
+            await asyncio.sleep(5)
+        else:
+            print(f"⚠️ ألبوم {media_group_id} يحتوي على رسالة واحدة فقط. يتم تخطيه.")
 
 async def main():
     async with Client(
