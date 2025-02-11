@@ -48,7 +48,9 @@ def extract_channel_id(text: str) -> int:
     if text.startswith("https://t.me/"):
         username = text.split("/")[-1]
         try:
-            return app.get_chat(username).id
+            # في حالة استخدام username، يمكن أن تُرجع الدالة كائن Chat وليس رقم المعرف مباشرةً
+            chat = app.get_chat(username)
+            return chat.id
         except Exception:
             return None
     return int(text) if text.lstrip('-').isdigit() else None
@@ -97,21 +99,21 @@ async def handle_input(client: Client, message: Message):
     if state == UserState.AWAITING_CHANNEL:
         # معالجة إدخال القناة
         channel_id = extract_channel_id(message.text)
-        print(f"تم استخراج معرف القناة: {channel_id}") # إضافة هذا السطر
         print(f"تم استخراج معرف القناة: {channel_id}")
 
+        # التحقق من إمكانية الوصول للقناة باستخدام get_chat()
         try:
-            chat = await client.get_chat(channel_id)    
+            chat = await client.get_chat(channel_id)
             print(f"✅ تم الوصول للقناة بنجاح: {chat.title} (ID: {chat.id})")
-                except Exception as e:
+        except Exception as e:
             print(f"❌ فشل في الوصول للقناة: {e}")
-                return await message.reply(f"❌ لا يمكن الوصول إلى القناة! تأكد أن البوت عضو فيها.\nالخطأ: {str(e)}")
+            return await message.reply(f"❌ لا يمكن الوصول إلى القناة! تأكد أن البوت عضو فيها.\nالخطأ: {str(e)}")
 
         if not channel_id:
             return await message.reply("❌ الرابط غير صحيح، حاول مرة أخرى!")
 
         try:
-            # التحقق من صلاحيات البوت
+            # التحقق من صلاحيات البوت في القناة
             chat = await client.get_chat(channel_id)
             if not chat.permissions.can_delete_messages:
                 return await message.reply("⚠️ البوت ليس لديه صلاحية الحذف في هذه القناة!")
@@ -125,7 +127,7 @@ async def handle_input(client: Client, message: Message):
     elif state == UserState.AWAITING_FIRST_MSG:
         # معالجة إدخال الرسالة الأولى
         first_msg_id = extract_message_id(message.text)
-        print(f"تم استخراج معرف الرسالة الأولى: {first_msg_id}") # إضافة هذا السطر
+        print(f"تم استخراج معرف الرسالة الأولى: {first_msg_id}")
         config['SETTINGS']['FIRST_MSG_ID'] = str(first_msg_id)
 
         with open('config.ini', 'w') as f:
@@ -138,6 +140,7 @@ async def handle_input(client: Client, message: Message):
                 [InlineKeyboardButton("بدء التنظيف الآن ▶️", callback_data="start_clean")]
             ])
         )
+
 @app.on_callback_query(filters.regex("start_clean"))
 async def start_cleaning(client: Client, callback_query):
     """بدء عملية التنظيف"""
