@@ -39,7 +39,8 @@ async def collect_albums(client, source_channel, first_msg_id):
     messages = []
 
     # تحديث بيانات الدردشات لضمان وجود بيانات الجلسة المحلية
-    await client.get_dialogs()
+    async for _ in client.get_dialogs():
+        pass
 
     try:
         chat = await client.get_chat(source_channel)
