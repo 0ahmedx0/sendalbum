@@ -15,13 +15,27 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))         # القناة المصد
 CHANNEL_ID_LOG = int(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
 
+async def iter_history(client, chat_id, min_id, limit=100):
+    """
+    مولّد غير متزامن لاستعراض تاريخ الرسائل باستخدام الترقيم (pagination).
+    يستخدم الدالة get_chat_history لجلب الرسائل التي يكون معرفها أكبر من min_id.
+    """
+    offset_id = 0
+    while True:
+        messages = await client.get_chat_history(chat_id, offset_id=offset_id, min_id=min_id, limit=limit)
+        if not messages:
+            break
+        for message in messages:
+            yield message
+        offset_id = messages[-1].message_id
+
 async def collect_albums(client, chat_id, first_msg_id):
     """
     يجمع جميع الرسائل التي تنتمي إلى ألبومات (بوجود الخاصية media_group_id)
     ويعيد قاموسًا بالشكل: { media_group_id: [رسائل الألبوم] }
     """
     albums = {}
-    async for message in client.iter_history(chat_id, min_id=first_msg_id):
+    async for message in iter_history(client, chat_id, first_msg_id):
         if message.media_group_id:
             albums.setdefault(message.media_group_id, []).append(message)
     return albums
@@ -37,7 +51,7 @@ async def transfer_album(client, source_chat, destination_chat, album_messages):
     media_group = []
     for index, message in enumerate(album_messages_sorted):
         input_media = None
-        # يتم تضمين التسمية التوضيحية فقط للرسالة الأولى
+        # تضمين التسمية التوضيحية فقط للرسالة الأولى
         caption = message.caption if index == 0 and message.caption else ""
         if message.photo:
             input_media = InputMediaPhoto(media=message.photo.file_id, caption=caption)
