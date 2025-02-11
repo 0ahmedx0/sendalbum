@@ -1,102 +1,83 @@
-from telethon import TelegramClient
-from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError
-from dotenv import load_dotenv
-import asyncio
 import os
+import asyncio
+from dotenv import load_dotenv
+from pyrogram import Client
+from pyrogram.types import InputMediaPhoto, InputMediaVideo
 
 # تحميل إعدادات البيئة
 load_dotenv()
 
-# إعدادات تيليجرام
-API_ID = int(os.getenv('API_ID', 0))
-API_HASH = os.getenv('API_HASH')
-SESSION = os.getenv('SESSION')  
-CHANNEL_ID = int(os.getenv('CHANNEL_ID', 0))         # القناة المصدر
-CHANNEL_ID_LOG = int(os.getenv('CHANNEL_ID_LOG', 0))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
-FIRST_MSG_ID = int(os.getenv('FIRST_MSG_ID', 0))       # معرف أول رسالة للبدء
+# إعدادات تيليجرام من البيئة
+API_ID = int(os.getenv("API_ID", 0))
+API_HASH = os.getenv("API_HASH")
+SESSION = os.getenv("SESSION")  # يمكن أن تكون سلسلة الجلسة أو اسم ملف الجلسة
+SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))       # القناة المصدر
+DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # القناة الوجهة
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))         # معرف أول رسالة للبدء
 
-async def collect_albums(client, channel_id, first_msg_id):
+async def collect_albums(client, source_channel, first_msg_id):
     """
-    يجمع جميع الرسائل التي تنتمي إلى ألبومات (بوجود الخاصية grouped_id)
-    ويعيد قاموساً بالشكل: { grouped_id: [معرفات الرسائل] }
+    يجمع الرسائل التي تنتمي إلى ألبومات (التي تمتلك الخاصية grouped_id)
+    ويعيد قاموساً بالشكل: { grouped_id: [الرسائل] }
     """
     albums = {}
-    async for message in client.iter_messages(channel_id, min_id=first_msg_id):
+    # استخدم iter_history للحصول على الرسائل ابتداءً من FIRST_MSG_ID، مع reverse=True لضمان الترتيب الصحيح
+    async for message in client.iter_history(source_channel, offset_id=first_msg_id, reverse=True):
         if message.grouped_id:
-            albums.setdefault(message.grouped_id, []).append(message.id)
+            albums.setdefault(message.grouped_id, []).append(message)
     return albums
 
-async def transfer_album_and_send_original_link(client, source_chat, destination_chat, album_msg_ids):
+async def transfer_album(client, album_messages):
     """
-    يقوم بتحويل ألبوم من الرسائل دون تنزيل الفيديوهات محلياً.
-    يتم جمع الكائنات (Document) من كل رسالة في الألبوم واستخدام send_file مع group=True.
-    بعد ذلك، يتم إرسال رابط الرسالة الأصلية (أول رسالة في الألبوم) إلى القناة الوجهة.
+    يقوم بنقل ألبوم الرسائل إلى القناة الوجهة باستخدام send_media_group.
+    لا يتم إرسال رابط الرسالة الأصلية.
     """
-    # الرسالة الأولى تعتبر الأصلية
-    original_msg_id = album_msg_ids[0]
-    files = []
-    for msg_id in album_msg_ids:
-        try:
-            msg = await client.get_messages(source_chat, ids=msg_id)
-            if msg and msg.media and hasattr(msg.media, 'document'):
-                # جمع الكائن Document الموجود في الرسالة
-                files.append(msg.media.document)
-            else:
-                print(f"⚠️ الرسالة {msg_id} لا تحتوي على وثيقة مناسبة.")
-        except Exception as e:
-            print(f"⚠️ خطأ في جلب الرسالة {msg_id}: {e}")
-
-    if not files:
-        print("⚠️ لا توجد ملفات لإرسالها في هذا الألبوم، يتم تخطيه...")
+    media_group = []
+    # إعداد قائمة الوسائط اعتماداً على نوع الرسالة
+    for msg in album_messages:
+        if msg.photo:
+            media_group.append(InputMediaPhoto(media=msg.photo.file_id, caption=msg.caption or ""))
+        elif msg.video:
+            media_group.append(InputMediaVideo(media=msg.video.file_id, caption=msg.caption or ""))
+        else:
+            print(f"⚠️ الرسالة {msg.message_id} ليست من نوع photo أو video، يتم تجاهلها.")
+    
+    if not media_group:
+        print("⚠️ لا توجد وسائط مناسبة في هذا الألبوم، يتم تخطيه...")
         return
 
     try:
-        # إرسال الألبوم باستخدام send_file مع group=True (يعادل send_media_group)
-        await client.send_file(destination_chat, file=files, group=True)
-        print(f"✅ تم إرسال ألبوم الرسائل {album_msg_ids} إلى القناة الوجهة")
-    except FloodWaitError as e:
-        print(f"⏳ تجاوز الحد: الانتظار {e.seconds} ثانية...")
-        await asyncio.sleep(e.seconds + 1)
+        # إرسال الألبوم باستخدام send_media_group
+        await client.send_media_group(chat_id=DESTINATION_CHANNEL, media=media_group)
+        print(f"✅ تم إرسال ألبوم يحتوي على {len(media_group)} وسائط إلى القناة الوجهة.")
     except Exception as e:
-        print(f"⚠️ خطأ في إرسال ألبوم الرسائل {album_msg_ids}: {e}")
+        print(f"⚠️ خطأ في إرسال الألبوم: {e}")
 
-    # تكوين رابط الرسالة الأصلية؛ نفترض أن معرف القناة يبدأ بـ -100، لذا نزيلها للحصول على الرابط الصحيح
-    src_str = str(source_chat)
-    if src_str.startswith("-100"):
-        link_channel = src_str[4:]
-    else:
-        link_channel = src_str
-    original_link = f"https://t.me/c/{link_channel}/{original_msg_id}"
-    try:
-        await client.send_message(destination_chat, f"📌 الرسالة الأصلية: {original_link}")
-        print(f"🔗 تم إرسال رابط الرسالة الأصلية: {original_link}")
-    except Exception as e:
-        print(f"⚠️ خطأ في إرسال رابط الرسالة الأصلية: {e}")
-
-async def process_albums(client, channel_id):
+async def process_albums(client, source_channel):
     """
-    يجمع ألبومات الرسائل من القناة المصدر، ثم ينقل كل ألبوم باستخدام الدالة transfer_album_and_send_original_link.
+    يجمع ألبومات الرسائل من القناة المصدر ثم ينقل كل ألبوم باستخدام transfer_album.
+    يتم إضافة تأخير لمدة 15 ثانية بعد كل 6 ألبومات لتجنب الحظر.
     """
     print("🔍 جاري تجميع الألبومات...")
-    albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
+    albums = await collect_albums(client, source_channel, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
-    
-    tasks = []
-    for grouped_id, msg_ids in albums.items():
-        if len(msg_ids) > 1:  # نعتبر الألبوم إذا كان يحتوي على أكثر من رسالة
-            print(f"📂 ألبوم {grouped_id} يحتوي على الرسائل: {msg_ids}")
-            tasks.append(transfer_album_and_send_original_link(client, channel_id, CHANNEL_ID_LOG, msg_ids))
-    if tasks:
-        await asyncio.gather(*tasks)
-    else:
-        print("لم يتم العثور على ألبومات.")
+    counter = 0
+    for grouped_id, messages in albums.items():
+        if len(messages) > 1:
+            print(f"📂 ألبوم {grouped_id} يحتوي على {len(messages)} رسالة.")
+            await transfer_album(client, messages)
+            counter += 1
+            if counter % 6 == 0:
+                print("⏳ انتظر 15 ثانية لتجنب الحظر...")
+                await asyncio.sleep(15)
+        else:
+            print(f"📄 رسالة فردية (غير ألبوم) يتم تجاهلها.")
 
 async def main():
-    async with TelegramClient(StringSession(SESSION), API_ID, API_HASH) as client:
+    async with Client(SESSION, api_id=API_ID, api_hash=API_HASH) as app:
         print("🚀 العميل متصل بنجاح.")
-        await process_albums(client, CHANNEL_ID)
+        await process_albums(app, SOURCE_CHANNEL)
 
-if __name__ == '__main__':
-    print("🔹 بدء تشغيل البوت...")
+if __name__ == "__main__":
+    print("🔹 بدء تشغيل البوت باستخدام Pyrogram...")
     asyncio.run(main())
