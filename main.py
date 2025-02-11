@@ -7,14 +7,13 @@ from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 # تحميل إعدادات البيئة من ملف .env
 load_dotenv()
 
-# إعدادات Pyrogram
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
-# روابط الدعوة للقنوات الخاصة (يجب أن تكون روابط صالحة للانضمام)
+# روابط الدعوة للقنوات الخاصة
 SOURCE_INVITE = os.getenv("CHANNEL_ID", "")    # رابط دعوة القناة المصدر
-DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")        # رابط دعوة القناة الوجهة
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))  # معرف أول رسالة للبدء
+DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")    # رابط دعوة القناة الوجهة
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))  # معرف أول رسالة للبدء
 
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
@@ -66,23 +65,29 @@ async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int,
 async def process_albums(client: Client, source_invite: str, dest_invite: str):
     print("🔍 جاري تجميع الألبومات...")
 
-    # الانضمام إلى القناة المصدر باستخدام رابط الدعوة
+    # الانضمام للقناة المصدر
     try:
         source_chat = await client.join_chat(source_invite)
         print("✅ تم الانضمام للقناة المصدر")
+    except errors.UserAlreadyParticipant:
+        source_chat = await client.get_chat(source_invite)
+        print("✅ الحساب مشارك مسبقاً في القناة المصدر")
     except Exception as e:
         print(f"⚠️ لم يتم الانضمام للقناة المصدر: {e}")
         return
 
-    # الانضمام إلى القناة الوجهة باستخدام رابط الدعوة
+    # الانضمام للقناة الوجهة
     try:
         dest_chat = await client.join_chat(dest_invite)
         print("✅ تم الانضمام للقناة الوجهة")
+    except errors.UserAlreadyParticipant:
+        dest_chat = await client.get_chat(dest_invite)
+        print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
     except Exception as e:
         print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
         return
 
-    # الآن نستخدم معرف القناة من الكائنات المرجعة (source_chat.id, dest_chat.id)
+    # استخدام معرف القنوات من الكائنات المرجعة
     albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID)
     print(f"تم العثور على {len(albums)} ألبوم.")
     tasks = []
