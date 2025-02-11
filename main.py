@@ -10,7 +10,7 @@ load_dotenv()
 # إعدادات تيليجرام من البيئة
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # يمكن أن تكون سلسلة الجلسة أو اسم ملف الجلسة
+SESSION = os.getenv("SESSION")  # سلسلة الجلسة الطويلة
 SOURCE_CHANNEL = int(os.getenv("CHANNEL_ID", 0))       # القناة المصدر
 DESTINATION_CHANNEL = int(os.getenv("CHANNEL_ID_LOG", 0))  # القناة الوجهة
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 0))         # معرف أول رسالة للبدء
@@ -21,7 +21,6 @@ async def collect_albums(client, source_channel, first_msg_id):
     ويعيد قاموساً بالشكل: { grouped_id: [الرسائل] }
     """
     albums = {}
-    # استخدم iter_history للحصول على الرسائل ابتداءً من FIRST_MSG_ID، مع reverse=True لضمان الترتيب الصحيح
     async for message in client.iter_history(source_channel, offset_id=first_msg_id, reverse=True):
         if message.grouped_id:
             albums.setdefault(message.grouped_id, []).append(message)
@@ -30,10 +29,9 @@ async def collect_albums(client, source_channel, first_msg_id):
 async def transfer_album(client, album_messages):
     """
     يقوم بنقل ألبوم الرسائل إلى القناة الوجهة باستخدام send_media_group.
-    لا يتم إرسال رابط الرسالة الأصلية.
+    لا يتم تنزيل الملفات محلياً.
     """
     media_group = []
-    # إعداد قائمة الوسائط اعتماداً على نوع الرسالة
     for msg in album_messages:
         if msg.photo:
             media_group.append(InputMediaPhoto(media=msg.photo.file_id, caption=msg.caption or ""))
@@ -47,7 +45,6 @@ async def transfer_album(client, album_messages):
         return
 
     try:
-        # إرسال الألبوم باستخدام send_media_group
         await client.send_media_group(chat_id=DESTINATION_CHANNEL, media=media_group)
         print(f"✅ تم إرسال ألبوم يحتوي على {len(media_group)} وسائط إلى القناة الوجهة.")
     except Exception as e:
@@ -56,7 +53,7 @@ async def transfer_album(client, album_messages):
 async def process_albums(client, source_channel):
     """
     يجمع ألبومات الرسائل من القناة المصدر ثم ينقل كل ألبوم باستخدام transfer_album.
-    يتم إضافة تأخير لمدة 15 ثانية بعد كل 6 ألبومات لتجنب الحظر.
+    بعد كل 6 ألبومات يتم إضافة تأخير 15 ثانية لتجنب الحظر.
     """
     print("🔍 جاري تجميع الألبومات...")
     albums = await collect_albums(client, source_channel, FIRST_MSG_ID)
@@ -74,7 +71,8 @@ async def process_albums(client, source_channel):
             print(f"📄 رسالة فردية (غير ألبوم) يتم تجاهلها.")
 
 async def main():
-    async with Client(SESSION, api_id=API_ID, api_hash=API_HASH) as app:
+    # استخدام اسم جلسة مختصر "my_session" وتمرير سلسلة الجلسة عبر session_string
+    async with Client("my_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
         print("🚀 العميل متصل بنجاح.")
         await process_albums(app, SOURCE_CHANNEL)
 
