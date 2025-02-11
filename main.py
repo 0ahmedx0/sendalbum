@@ -7,44 +7,23 @@ from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
 # تحميل إعدادات البيئة من ملف .env
 load_dotenv()
 
-# إعدادات Pyrogram
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
-SESSION = os.getenv("SESSION")  # يجب أن تكون هذه السلسلة الجلسة (session string)
+SESSION = os.getenv("SESSION")  # يجب أن تكون السلسلة الجلسة (session string)
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))         # القناة المصدر
 CHANNEL_ID_LOG = int(os.getenv("CHANNEL_ID_LOG", "0"))   # القناة الوجهة التي سيتم تحويل الرسائل إليها
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رسالة للبدء
 
-async def iter_history(client: Client, chat_id: int, first_msg_id: int, limit: int = 100):
-    """
-    مولّد غير متزامن لاستعراض تاريخ الرسائل من قناة محددة باستخدام get_chat_history.
-    يبدأ من الرسائل الأحدث (offset_id=0) وينتهي عندما نصل إلى رسالة برقم أقل من FIRST_MSG_ID.
-    """
-    offset_id = 0
-    while True:
-        messages = await client.get_chat_history(chat_id, offset_id=offset_id, limit=limit)
-        if not messages:
-            break
-        for msg in messages:
-            # بما أن الرسائل مرتبة تنازلياً (الأحدث أولاً)، نتحقق من رقم الرسالة
-            if msg.message_id >= first_msg_id:
-                yield msg
-            else:
-                # بمجرد الوصول لرسالة أقدم من FIRST_MSG_ID، ننهي التكرار
-                return
-        # إذا كانت أقل من limit، فهذا يعني انتهاء الرسائل
-        if len(messages) < limit:
-            break
-        # تحديث offset_id إلى أقدم رسالة في الدفعة الحالية
-        offset_id = messages[-1].message_id
-
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
-    يجمع الرسائل التي تنتمي إلى ألبومات (تحتوي على media_group_id) من تاريخ الدردشة.
-    يُعيد قاموسًا بالشكل: { media_group_id: [رسائل الألبوم] }
+    يجمع الرسائل التي تنتمي إلى ألبومات (تحتوي على media_group_id)
+    من تاريخ الدردشة باستخدام get_chat_history مع offset_id = FIRST_MSG_ID - 1.
+    يتم التوقف عن القراءة بمجرد الوصول إلى رسالة رقمها أقل من FIRST_MSG_ID.
     """
     albums = {}
-    async for message in iter_history(client, chat_id, first_msg_id):
+    async for message in client.get_chat_history(chat_id, offset_id=first_msg_id - 1):
+        if message.message_id < first_msg_id:
+            break
         if message.media_group_id:
             albums.setdefault(message.media_group_id, []).append(message)
     return albums
@@ -59,7 +38,7 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
     
     media_group = []
     for index, message in enumerate(album_messages_sorted):
-        # تضمين التسمية التوضيحية فقط للرسالة الأولى في المجموعة
+        # تضمين التسمية التوضيحية فقط للرسالة الأولى
         caption = message.caption if index == 0 and message.caption else ""
         if message.photo:
             media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
