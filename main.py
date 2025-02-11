@@ -102,7 +102,7 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         if len(messages) > 1:
             print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.id for msg in messages]}")
             await transfer_album(client, source_chat.id, dest_chat.id, messages)
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
         else:
             print(f"⚠️ ألبوم {media_group_id} يحتوي على رسالة واحدة فقط. يتم تخطيه.")
 
