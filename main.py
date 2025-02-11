@@ -21,36 +21,41 @@ total_deleted_count = 0
 
 async def collect_files(client, channel_id, first_msg_id):
     """
-    يجمع جميع الملفات وأحجامها في قاموس { الحجم: {معرفات الرسائل} }
+    يجمع جميع الملفات وأحجامها في قاموس { الحجم: [معرفات الرسائل] }
     """
-    file_dict = {}  # { حجم الملف: {معرفات الرسائل} }
+    file_dict = {}  # { حجم الملف: [معرفات الرسائل] }
 
     async for message in client.iter_messages(channel_id, min_id=first_msg_id):
         if message.file and hasattr(message.file, 'size'):
             file_size = message.file.size
-            file_dict.setdefault(file_size, set()).add(message.id)
+            if file_size in file_dict:
+                file_dict[file_size].append(message.id)
+            else:
+                file_dict[file_size] = [message.id]
 
     return file_dict
 
 async def forward_and_delete_messages(client, source_chat, destination_chat, duplicate_msg_ids):
     """
-    ينقل ويحذف الرسائل المكررة
+    ينقل ويحذف الرسائل المكررة مع تأخير 5 ثوانٍ بعد كل تحويل فقط.
     """
     global total_deleted_count
-    if not duplicate_msg_ids:
-        return
-
-    chunk_size = 99
-    tasks = []
+    chunk_size = 99  # الحد الأقصى للرسائل التي يمكن معالجتها في دفعة واحدة
 
     for i in range(0, len(duplicate_msg_ids), chunk_size):
-        chunk = list(duplicate_msg_ids)[i:i + chunk_size]
-        tasks.append(asyncio.create_task(client.forward_messages(destination_chat, chunk, from_peer=source_chat)))
-        tasks.append(asyncio.create_task(client.delete_messages(source_chat, chunk)))
-        total_deleted_count += len(chunk)
-
-    await asyncio.gather(*tasks)
-    print(f"✅ تم حذف {total_deleted_count} رسالة مكررة.")
+        chunk = duplicate_msg_ids[i:i + chunk_size]
+        try:
+            await client.forward_messages(destination_chat, chunk, from_peer=source_chat)
+            print(f"✅ Forwarded duplicate messages {chunk}")
+            await asyncio.sleep(5)  # تأخير 5 ثوانٍ بعد كل تحويل
+            await client.delete_messages(source_chat, chunk)
+            total_deleted_count += len(chunk)
+            print(f"🗑 Deleted duplicate messages {chunk}")
+        except FloodWaitError as e:
+            print(f"⏳ تم تجاوز الحد! الانتظار {e.seconds} ثانية...")
+            await asyncio.sleep(e.seconds + 1)
+        except Exception as e:
+            print(f"⚠️ خطأ في حذف الرسائل {chunk}: {e}")
 
 async def delete_duplicates(client, channel_id):
     """
@@ -60,15 +65,12 @@ async def delete_duplicates(client, channel_id):
     print("🔍 جاري تجميع الملفات...")
 
     file_dict = await collect_files(client, channel_id, FIRST_MSG_ID)
-    delete_tasks = []
-
+    
     for file_size, msg_ids in file_dict.items():
         if len(msg_ids) > 1:  # إذا وجد أكثر من رسالة بنفس الحجم
-            msg_ids = sorted(msg_ids)  # لضمان الاحتفاظ بأقدم نسخة
-            print(f"📂 ملفات مكررة بحجم {file_size}, سيتم حذف {len(msg_ids)-1} نسخة.")
-            delete_tasks.append(forward_and_delete_messages(client, channel_id, CHANNEL_ID_LOG, list(msg_ids[1:])))
-
-    await asyncio.gather(*delete_tasks)
+            print(f"📂 ملفات مكررة بحجم {file_size} باختيار {msg_ids[0]}")
+            await forward_and_delete_messages(client, channel_id, CHANNEL_ID_LOG, msg_ids[1:])
+    
     print(f"📌 إجمالي الرسائل المحذوفة: {total_deleted_count}")
 
 async def main():
