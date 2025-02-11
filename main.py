@@ -17,19 +17,32 @@ FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "0"))       # معرف أول رس�
 
 async def iter_history(client: Client, chat_id: int, first_msg_id: int, limit: int = 100):
     """
-    مولّد غير متزامن لاستعراض تاريخ الرسائل باستخدام client.iter_history.
-    يتم تصفية الرسائل بحيث يُعاد فقط تلك التي رقمها أكبر من أو يساوي FIRST_MSG_ID.
+    مولّد غير متزامن لاستعراض تاريخ الرسائل من قناة محددة باستخدام get_chat_history.
+    يبدأ من الرسالة ذات المعرف FIRST_MSG_ID (عن طريق تحديد offset_id = FIRST_MSG_ID - 1) ويستخدم reverse=True
+    لاسترجاع الرسائل بترتيب تصاعدي (من الأقدم إلى الأحدث).
     """
-    async for message in client.iter_history(chat_id, limit=limit):
-        if message.message_id >= first_msg_id:
-            yield message
-        else:
+    offset_id = first_msg_id - 1
+    while True:
+        messages = await client.get_chat_history(
+            chat_id,
+            offset_id=offset_id,
+            limit=limit,
+            reverse=True
+        )
+        if not messages:
             break
+        for msg in messages:
+            if msg.message_id >= first_msg_id:
+                yield msg
+        # إذا كانت عدد الرسائل أقل من الحد المحدد، فإننا وصلنا للنهاية
+        if len(messages) < limit:
+            break
+        offset_id = messages[-1].message_id
 
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
     """
-    يجمع جميع الرسائل التي تنتمي إلى ألبومات (بوجود الخاصية media_group_id)
-    ويعيد قاموسًا بالشكل: { media_group_id: [رسائل الألبوم] }
+    يجمع الرسائل التي تنتمي إلى ألبومات (التي تحتوي على media_group_id) من تاريخ الدردشة.
+    يُعيد قاموسًا بالشكل: { media_group_id: [رسائل الألبوم] }
     """
     albums = {}
     async for message in iter_history(client, chat_id, first_msg_id):
@@ -39,15 +52,15 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int):
 
 async def transfer_album(client: Client, source_chat: int, destination_chat: int, album_messages: list):
     """
-    يقوم بتحويل ألبوم من الرسائل باستخدام دالة send_media_group الخاصة بـ Pyrogram.
-    يتم تجميع وسائط الرسائل وإرسالها كمجموعة دون تنزيل الملفات محلياً.
+    ينقل ألبوم من الرسائل باستخدام send_media_group في Pyrogram.
+    يتم ترتيب الرسائل تصاعدياً، وتجميع الوسائط وإرسالها كمجموعة.
     """
     # ترتيب الرسائل تصاعديًا للحفاظ على الترتيب الأصلي
     album_messages_sorted = sorted(album_messages, key=lambda m: m.message_id)
     
     media_group = []
     for index, message in enumerate(album_messages_sorted):
-        # تضمين التسمية التوضيحية فقط للرسالة الأولى
+        # تضمين التسمية التوضيحية فقط للرسالة الأولى في المجموعة
         caption = message.caption if index == 0 and message.caption else ""
         if message.photo:
             media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
@@ -77,7 +90,7 @@ async def transfer_album(client: Client, source_chat: int, destination_chat: int
 
 async def process_albums(client: Client, channel_id: int):
     """
-    يجمع ألبومات الرسائل من القناة المصدر، ثم ينقل كل ألبوم باستخدام الدالة transfer_album.
+    يجمع ألبومات الرسائل من القناة المصدر وينقلها إلى القناة الوجهة.
     """
     print("🔍 جاري تجميع الألبومات...")
     albums = await collect_albums(client, channel_id, FIRST_MSG_ID)
