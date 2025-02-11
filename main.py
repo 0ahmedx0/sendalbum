@@ -35,27 +35,45 @@ async def collect_files(client, channel_id, first_msg_id):
 
     return file_dict
 
-async def forward_and_delete_messages(client, source_chat, destination_chat, duplicate_msg_ids):
+async def forward_delete_and_send_original_link(client, source_chat, destination_chat, duplicate_msg_ids):
     """
-    ينقل ويحذف الرسائل المكررة مع تأخير 5 ثوانٍ بعد كل تحويل فقط.
+    - ينقل الرسائل المكررة إلى القناة الأخرى
+    - يحذف الرسائل المكررة
+    - يرسل رابط الرسالة الأصلية بعد الحذف
     """
     global total_deleted_count
     chunk_size = 99  # الحد الأقصى للرسائل التي يمكن معالجتها في دفعة واحدة
 
+    # أول رسالة هي الأصلية، الباقي سيتم حذفه
+    original_msg_id = duplicate_msg_ids[0]
+    duplicate_msg_ids = duplicate_msg_ids[1:]
+
     for i in range(0, len(duplicate_msg_ids), chunk_size):
         chunk = duplicate_msg_ids[i:i + chunk_size]
         try:
+            # تحويل الرسائل المكررة
             await client.forward_messages(destination_chat, chunk, from_peer=source_chat)
             print(f"✅ Forwarded duplicate messages {chunk}")
             await asyncio.sleep(5)  # تأخير 5 ثوانٍ بعد كل تحويل
+
+            # حذف الرسائل المكررة
             await client.delete_messages(source_chat, chunk)
             total_deleted_count += len(chunk)
             print(f"🗑 Deleted duplicate messages {chunk}")
+
         except FloodWaitError as e:
             print(f"⏳ تم تجاوز الحد! الانتظار {e.seconds} ثانية...")
             await asyncio.sleep(e.seconds + 1)
         except Exception as e:
             print(f"⚠️ خطأ في حذف الرسائل {chunk}: {e}")
+
+    # إرسال رابط الرسالة الأصلية بعد حذف المكررات
+    original_link = f"https://t.me/c/{str(source_chat)[4:]}/{original_msg_id}"
+    try:
+        await client.send_message(destination_chat, f"📌 الرسالة الأصلية: {original_link}")
+        print(f"🔗 Sent original message link: {original_link}")
+    except Exception as e:
+        print(f"⚠️ خطأ في إرسال رابط الرسالة الأصلية: {e}")
 
 async def delete_duplicates(client, channel_id):
     """
@@ -69,7 +87,7 @@ async def delete_duplicates(client, channel_id):
     for file_size, msg_ids in file_dict.items():
         if len(msg_ids) > 1:  # إذا وجد أكثر من رسالة بنفس الحجم
             print(f"📂 ملفات مكررة بحجم {file_size} باختيار {msg_ids[0]}")
-            await forward_and_delete_messages(client, channel_id, CHANNEL_ID_LOG, msg_ids[1:])
+            await forward_delete_and_send_original_link(client, channel_id, CHANNEL_ID_LOG, msg_ids)
     
     print(f"📌 إجمالي الرسائل المحذوفة: {total_deleted_count}")
 
