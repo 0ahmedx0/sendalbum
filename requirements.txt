@@ -1,4 +1,5 @@
 pyrogram
-python-dotenv
 configparser
 TgCrypto
+telethon
+python-dotenv
