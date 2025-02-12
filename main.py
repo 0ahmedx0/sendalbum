@@ -13,44 +13,46 @@ API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")
 SOURCE_INVITE = os.getenv("CHANNEL_ID")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
-BATCH_SIZE = 100  # حجم كل دفعة من الرسائل
-DELAY_BETWEEN_ALBUMS = 10  # تأخير بين إرسال كل ألبوم
-FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
-LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "14356"))  # حدد آخر رسالة تريد معالجتها
+FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 1))  # إضافة متغير البداية
+BATCH_SIZE = 1000
+DELAY_BETWEEN_ALBUMS = 2
 
-async def collect_albums_batch(client: Client, chat_id: int, current_id: int, last_msg_id: int):
+async def collect_albums_batch(client: Client, chat_id: int, current_offset: int):
     """
-    يجمع دفعة من الرسائل بدءًا من current_id حتى يصل العدد إلى BATCH_SIZE 
-    أو ينتهي المجال حتى LAST_MESSAGE_ID، ويجمع الرسائل التي تحتوي على media_group_id في ألبومات.
+    تجميع الدفعات من الأقدم إلى الأحدث بدءًا من FIRST_MSG_ID
     """
     albums = {}
     messages = []
     
+    # جلب الرسائل بدءًا من current_offset
     async for message in client.get_chat_history(
         chat_id,
         limit=BATCH_SIZE,
-        min_id=current_id - 1,   # يجلب الرسائل التي يكون id أكبر من current_id - 1
-        max_id=last_msg_id        # لا يتجاوز LAST_MESSAGE_ID
+        min_id=current_offset  # الجديد: استخدام min_id للتحكم في النطاق
     ):
-        if message.id < current_id:
-            continue
         messages.append(message)
-        if message.media_group_id:
-            albums.setdefault(message.media_group_id, []).append(message)
+        if len(messages) >= BATCH_SIZE:
+            break
     
     if not messages:
         return None, None
     
-    # عكس ترتيب الرسائل للحصول على الترتيب التصاعدي (من الأقدم إلى الأحدث)
-    messages.reverse()
+    # ترتيب الرسائل تصاعديًا (من الأقدم إلى الأحدث داخل الدفعة)
+    messages.sort(key=lambda m: m.id)
     
-    # تحديث نقطة البداية للدفعة التالية: نستخدم معرف آخر رسالة من الدفعة دون إضافة 1
-    next_current_id = messages[-1].id
-    return albums, next_current_id
+    # تجميع الألبومات
+    for message in messages:
+        if message.media_group_id:
+            albums.setdefault(message.media_group_id, []).append(message)
+    
+    # تحديث الـ offset للدفعة التالية
+    next_offset = messages[-1].id + 1 if messages else current_offset
+    
+    return albums, next_offset
 
 async def send_album(client: Client, dest_chat_id: int, messages: list):
     """
-    يقوم بتجهيز وإرسال ألبوم من الرسائل مع التعامل مع أخطاء FloodWait.
+    (نفس دالة الإرسال السابقة دون تغيير)
     """
     try:
         sorted_messages = sorted(messages, key=lambda m: m.id)
@@ -69,65 +71,67 @@ async def send_album(client: Client, dest_chat_id: int, messages: list):
             else:
                 continue
             
-            # إضافة التسمية التوضيحية للعنصر الأول إن وُجدت
             if idx == 0 and msg.caption:
                 media.caption = msg.caption
+            
             media_group.append(media)
         
         await client.send_media_group(dest_chat_id, media_group)
-        print(f"✅ تم إرسال ألبوم ({len(sorted_messages)} رسائل) - الأرقام: {[m.id for m in sorted_messages]}")
+        print(f"✅ تم إرسال ألبوم ({len(messages)} رسائل) - الأرقام: {[m.id for m in sorted_messages]}")
+        await asyncio.sleep(DELAY_BETWEEN_ALBUMS)
+        
     except errors.FloodWait as e:
-        print(f"⏳ تم إيقاف البوت لمدة {e.value} ثانية بسبب FloodWait")
+        print(f"⏳ تم إيقاف البوت لمدة {e.value} ثانية")
         await asyncio.sleep(e.value + 1)
         await send_album(client, dest_chat_id, messages)
     except Exception as e:
-        print(f"⚠️ فشل إرسال الألبوم: {str(e)}")
+        print(f"⚠️ فشل الإرسال: {str(e)}")
 
 async def process_channel(client: Client, source_invite: str, dest_invite: str):
     """
-    ينضم إلى القناتين، ويجمع الرسائل على دفعات من 1000، ثم يجمع الألبومات ويرسلها،
-    ويستكمل العملية بدءًا من آخر رسالة من الدفعة السابقة.
+    المعالجة الرئيسية مع تحكم كامل في الدفعات
     """
-    # الانضمام للقناة المصدر
+    # الانضمام للقنوات (نفس الكود السابق)
     try:
         source_chat = await client.join_chat(source_invite)
-        print("✅ تم الاتصال بالقناة المصدر")
     except errors.UserAlreadyParticipant:
         source_chat = await client.get_chat(source_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة المصدر")
     
-    # الانضمام للقناة الوجهة
     try:
         dest_chat = await client.join_chat(dest_invite)
-        print("✅ تم الاتصال بالقناة الوجهة")
     except errors.UserAlreadyParticipant:
         dest_chat = await client.get_chat(dest_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
     
-    current_id = FIRST_MSG_ID
+    current_offset = FIRST_MSG_ID  # البدء من الرسالة الأولى
     total_albums = 0
     
     while True:
-        albums, next_current_id = await collect_albums_batch(client, source_chat.id, current_id, LAST_MESSAGE_ID)
+        # جلب الدفعة الحالية
+        albums, next_offset = await collect_albums_batch(client, source_chat.id, current_offset)
+        
         if not albums:
             print("🎉 تم معالجة جميع الرسائل!")
             break
         
-        sorted_albums = sorted(albums.items(), key=lambda x: min(m.id for m in x[1]))
+        # ترتيب الألبومات داخل الدفعة
+        sorted_albums = sorted(
+            albums.items(),
+            key=lambda x: min(m.id for m in x[1])
+        )
+        
+        # معالجة كل ألبوم
         for album_id, messages in sorted_albums:
-            print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in messages]}")
             await send_album(client, dest_chat.id, messages)
             total_albums += 1
-            await asyncio.sleep(DELAY_BETWEEN_ALBUMS)
         
-        print(f"⚡ تم معالجة دفعة من الرسائل من {current_id} إلى {next_current_id}")
-        current_id = next_current_id  # بدء الدفعة التالية من آخر رسالة تمت معالجتها
+        print(f"⚡ تم معالجة {len(albums)} ألبوم في الدفعة {current_offset}-{next_offset-1}")
+        current_offset = next_offset  # الانتقال للدفعة التالية
     
-    print(f"✅ الانتهاء من نقل {total_albums} ألبوم بنجاح")
+    print(f"✅ تم نقل إجمالي {total_albums} ألبوم")
 
 async def main():
     async with Client(
-        name="media_transfer_bot",
+        "media_transfer_bot",
         api_id=API_ID,
         api_hash=API_HASH,
         session_string=SESSION
