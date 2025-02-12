@@ -14,8 +14,8 @@ SESSION = os.getenv("SESSION")
 SOURCE_INVITE = os.getenv("CHANNEL_ID")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", 1))  # إضافة متغير البداية
-BATCH_SIZE = 1000
-DELAY_BETWEEN_ALBUMS = 2
+BATCH_SIZE = 100
+DELAY_BETWEEN_ALBUMS = 10
 
 async def collect_albums_batch(client: Client, chat_id: int, current_offset: int):
     """
