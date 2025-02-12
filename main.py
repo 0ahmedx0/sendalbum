@@ -74,7 +74,7 @@ async def transfer_album(client: Client, dest_chat_id: int, album_messages: list
         print(f"✅ تم إرسال ألبوم يحتوي على الرسائل: {[msg.id for msg in album_messages_sorted]}")
     except errors.FloodWait as e:
         print(f"⏳ تجاوز الحد: الانتظار {e.value} ثانية...")
-        await asyncio.sleep(e.value + 1)
+        await asyncio.sleep(e.value + 5)
         await client.send_media_group(chat_id=dest_chat_id, media=media_group)
     except Exception as ex:
         print(f"⚠️ خطأ أثناء إرسال الألبوم {[msg.id for msg in album_messages_sorted]}: {ex}")
