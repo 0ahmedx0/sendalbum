@@ -17,7 +17,7 @@ DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")
 
 # معرف أول وآخر رسالة لتحديد النطاق يدويًا
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
-LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "999999999"))  # حدد آخر رسالة هنا
+LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "14356"))  # حدد آخر رسالة هنا
 
 async def collect_albums(client: Client, chat_id: int, first_msg_id: int, last_msg_id: int):
     """
