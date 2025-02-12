@@ -13,8 +13,8 @@ API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")
 SOURCE_INVITE = os.getenv("CHANNEL_ID")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
-BATCH_SIZE = 1000  # حجم كل دفعة من الرسائل
-DELAY_BETWEEN_ALBUMS = 2  # تأخير بين إرسال كل ألبوم
+BATCH_SIZE = 100  # حجم كل دفعة من الرسائل
+DELAY_BETWEEN_ALBUMS = 10  # تأخير بين إرسال كل ألبوم
 
 async def collect_albums_batch(client: Client, chat_id: int, offset_id: int):
     """
