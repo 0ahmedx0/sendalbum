@@ -18,17 +18,18 @@ DEST_INVITE = os.getenv("CHANNEL_ID_LOG", "")
 # معرف أول وآخر رسالة لتحديد النطاق يدويًا
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "14356"))  # حدد آخر رسالة هنا
+BATCH_SIZE = 1000  # عدد الرسائل في كل دفعة
 
-async def collect_and_process_albums(client: Client, chat_id: int, first_msg_id: int, last_msg_id: int, dest_chat_id: int):
+async def collect_albums(client: Client, chat_id: int, first_msg_id: int, last_msg_id: int):
     """
-    يجمع الرسائل التي تحتوي على media_group_id على دفعات من 500 رسالة، ويرسل كل دفعة مباشرة قبل الانتقال إلى التالية.
+    يجمع الرسائل التي تحتوي على media_group_id من القناة على دفعات.
     """
-    offset_id = first_msg_id - 1  # نبدأ من أول رسالة محددة
+    albums = {}
+    offset_id = first_msg_id - 1
+    
     while True:
         messages_batch = []
-        albums = {}
-
-        async for message in client.get_chat_history(chat_id, offset_id=offset_id, limit=500):
+        async for message in client.get_chat_history(chat_id, offset_id=offset_id, limit=BATCH_SIZE):
             if message.id > last_msg_id:
                 continue  # تجاوز الرسائل الأحدث من المطلوب
             if message.id < first_msg_id:
@@ -36,51 +37,51 @@ async def collect_and_process_albums(client: Client, chat_id: int, first_msg_id:
             messages_batch.append(message)
             if message.media_group_id:
                 albums.setdefault(message.media_group_id, []).append(message)
-
+        
         if not messages_batch:
-            break  # توقف عند عدم وجود رسائل أخرى للمعالجة
+            break  # لا مزيد من الرسائل للمعالجة
         
-        messages_batch.reverse()  # ترتيب الرسائل من الأقدم إلى الأحدث
-
-        # معالجة البيانات (إرسال الألبومات)
-        await send_albums(client, albums, dest_chat_id)
-
+        messages_batch.reverse()  # ترتيب تصاعدي للأقدم أولاً
         offset_id = messages_batch[-1].id  # تحديث نقطة البداية للدورة التالية
+    
+    return albums
 
-async def send_albums(client: Client, albums: dict, dest_chat_id: int):
+async def transfer_album(client: Client, dest_chat_id: int, album_messages: list):
     """
-    ترسل الألبومات التي تم جمعها.
+    ينقل الألبومات من القناة المصدر إلى القناة الوجهة بالترتيب الزمني الصحيح.
     """
-    for album_id, messages in sorted(albums.items(), key=lambda item: min(msg.id for msg in item[1])):
-        print(f"📤 إرسال ألبوم {album_id} يحتوي على {len(messages)} رسالة...")
-        media_group = []
-        for index, message in enumerate(sorted(messages, key=lambda m: m.id)):
-            caption = message.caption if index == 0 else ""
-            if message.photo:
-                media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
-            elif message.video:
-                media_group.append(InputMediaVideo(media=message.video.file_id, caption=caption, supports_streaming=True))
-            elif message.document:
-                if message.document.mime_type and message.document.mime_type.startswith("video/"):
-                    media_group.append(InputMediaVideo(media=message.document.file_id, caption=caption, supports_streaming=True))
-                else:
-                    media_group.append(InputMediaDocument(media=message.document.file_id, caption=caption))
-        
-        if media_group:
-            try:
-                await client.send_media_group(chat_id=dest_chat_id, media=media_group)
-                print(f"✅ تم إرسال ألبوم {album_id}")
-                await asyncio.sleep(10)  # تأخير 10 ثوانٍ بين كل ألبوم
-            except errors.FloodWait as e:
-                print(f"⏳ تجاوز الحد: الانتظار {e.value} ثانية...")
-                await asyncio.sleep(e.value + 5)
-                await client.send_media_group(chat_id=dest_chat_id, media=media_group)
-            except Exception as ex:
-                print(f"⚠️ خطأ أثناء إرسال الألبوم {album_id}: {ex}")
+    album_messages_sorted = sorted(album_messages, key=lambda m: m.id)
+    media_group = []
+    
+    for index, message in enumerate(album_messages_sorted):
+        caption = message.caption if index == 0 else ""
+        if message.photo:
+            media_group.append(InputMediaPhoto(media=message.photo.file_id, caption=caption))
+        elif message.video:
+            media_group.append(InputMediaVideo(media=message.video.file_id, caption=caption, supports_streaming=True))
+        elif message.document:
+            if message.document.mime_type and message.document.mime_type.startswith("video/"):
+                media_group.append(InputMediaVideo(media=message.document.file_id, caption=caption, supports_streaming=True))
+            else:
+                media_group.append(InputMediaDocument(media=message.document.file_id, caption=caption))
+    
+    if not media_group:
+        print(f"⚠️ لا توجد وسائط في الألبوم {album_messages_sorted[0].id}. يتم تخطيه.")
+        return
+
+    try:
+        await client.send_media_group(chat_id=dest_chat_id, media=media_group)
+        print(f"✅ تم إرسال ألبوم يحتوي على الرسائل: {[msg.id for msg in album_messages_sorted]}")
+    except errors.FloodWait as e:
+        print(f"⏳ تجاوز الحد: الانتظار {e.value} ثانية...")
+        await asyncio.sleep(e.value + 1)
+        await client.send_media_group(chat_id=dest_chat_id, media=media_group)
+    except Exception as ex:
+        print(f"⚠️ خطأ أثناء إرسال الألبوم {[msg.id for msg in album_messages_sorted]}: {ex}")
 
 async def process_albums(client: Client, source_invite: str, dest_invite: str):
     """
-    ينضم إلى القناتين، يجمع الألبومات من القناة المصدر، ويرسلها إلى القناة الوجهة على دفعات.
+    ينضم إلى القناتين، يجمع الألبومات من القناة المصدر، ويرسلها إلى القناة الوجهة.
     """
     print("🔍 جاري تجميع الألبومات...")
 
@@ -110,8 +111,15 @@ async def process_albums(client: Client, source_invite: str, dest_invite: str):
         print(f"⚠️ لم يتم الانضمام للقناة الوجهة: {e}")
         return
 
-    await collect_and_process_albums(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID, dest_chat.id)
-    print("✅ تمت معالجة جميع الألبومات!")
+    albums = await collect_albums(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
+    print(f"تم العثور على {len(albums)} ألبوم.")
+
+    sorted_albums = sorted(albums.items(), key=lambda item: min(msg.id for msg in item[1]))
+
+    for media_group_id, messages in sorted_albums:
+        print(f"📂 ألبوم {media_group_id} يحتوي على الرسائل: {[msg.id for msg in messages]}")
+        await transfer_album(client, dest_chat.id, messages)
+        await asyncio.sleep(10)
 
 async def main():
     async with Client(
