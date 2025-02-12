@@ -28,7 +28,7 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int, last_m
     offset_id = first_msg_id - 1  # نبدأ من أول رسالة محددة
     while True:
         messages_batch = []
-        async for message in client.get_chat_history(chat_id, offset_id=offset_id, limit=500, reverse=True):
+        async for message in client.get_chat_history(chat_id, offset_id=offset_id, limit=500):  # إزالة reverse
             if message.id > last_msg_id:
                 continue  # تجاوز الرسائل الأحدث من المطلوب
             if message.id < first_msg_id:
@@ -40,9 +40,11 @@ async def collect_albums(client: Client, chat_id: int, first_msg_id: int, last_m
         if not messages_batch:
             break  # توقف عند عدم وجود رسائل أخرى للمعالجة
         
+        messages_batch.reverse()  # عكس الترتيب يدويًا للحصول على الأقدم أولًا
         offset_id = messages_batch[-1].id  # تحديث نقطة البداية للدورة التالية
     
     return albums
+
 
 async def transfer_album(client: Client, source_chat_id: int, dest_chat_id: int, album_messages: list):
     """
