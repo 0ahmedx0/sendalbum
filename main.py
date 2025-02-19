@@ -13,9 +13,9 @@ SESSION = os.getenv("SESSION")
 SOURCE_INVITE = os.getenv("CHANNEL_ID")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
-LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "14356"))
+LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "2105"))
 BATCH_SIZE = 1000  # حجم كل دفعة من الرسائل
-DELAY_BETWEEN_ALBUMS = 10  # تأخير بين إرسال كل ألبوم
+DELAY_BETWEEN_ALBUMS = 20  # تأخير بين إرسال كل ألبوم
 
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     """
@@ -93,7 +93,7 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
         await client.send_message(dest_chat_id, f"📌 رابط الرسالة: {link}")
     except errors.FloodWait as e:
         print(f"⏳ FloodWait: الانتظار {e.value} ثانية...")
-        await asyncio.sleep(e.value + 1)
+        await asyncio.sleep(e.value + 5)
         await send_album(client, dest_chat_id, source_chat_id, messages)
     except Exception as e:
         print(f"⚠️ فشل إرسال الألبوم: {str(e)}")
