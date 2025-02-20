@@ -13,7 +13,7 @@ SESSION = os.getenv("SESSION")
 SOURCE_INVITE = os.getenv("CHANNEL_ID")
 DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
-LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "2105"))
+LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 BATCH_SIZE = 1000  # حجم كل دفعة من الرسائل
 DELAY_BETWEEN_ALBUMS = 20  # تأخير بين إرسال كل ألبوم
 
