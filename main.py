@@ -1,9 +1,10 @@
 import asyncio
 import os
+import random
 from dotenv import load_dotenv
 from pyrogram import Client, errors
 from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
-
+prev_delay = None
 # تحميل الإعدادات من ملف .env
 load_dotenv()
 
@@ -16,6 +17,23 @@ FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 BATCH_SIZE = 1000  # حجم كل دفعة من الرسائل
 DELAY_BETWEEN_ALBUMS = int(os.getenv("DELAY_BETWEEN_ALBUMS", ""))  # تأخير بين إرسال كل ألبوم
+import random
+
+# متغير لتخزين آخر قيمة تأخير مستخدمة
+prev_delay = None
+
+def get_random_delay(min_delay=1, max_delay=120, min_diff=30):
+        """
+        تُولد قيمة تأخير عشوائية بين min_delay و max_delay.
+        إذا كانت القيمة الجديدة قريبة جدًا (فرق أقل من min_diff) من القيمة السابقة،
+        يتم إعادة التوليد.
+        """
+        global prev_delay
+        delay = random.randint(min_delay, max_delay)
+        while prev_delay is not None and abs(delay - prev_delay) < min_diff:
+            delay = random.randint(min_delay, max_delay)
+        prev_delay = delay
+        return delay
 
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     """
@@ -131,7 +149,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
         for album_id, msgs in sorted_albums:
             print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}")
             await send_album(client, dest_chat.id, source_chat.id, msgs)
-            await asyncio.sleep(DELAY_BETWEEN_ALBUMS)
+            await asyncio.sleep(get_random_delay())
         print(f"⚡ تم معالجة دفعة من {len(batch)} رسالة")
     
     print("✅ الانتهاء من نقل جميع الألبومات!")
