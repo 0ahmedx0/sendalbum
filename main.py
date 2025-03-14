@@ -22,7 +22,7 @@ import random
 # متغير لتخزين آخر قيمة تأخير مستخدمة
 prev_delay = None
 
-def get_random_delay(min_delay=30, max_delay=120, min_diff=30):
+def get_random_delay(min_delay=30, max_delay=100, min_diff=30):
         """
         تُولد قيمة تأخير عشوائية بين min_delay و max_delay.
         إذا كانت القيمة الجديدة قريبة جدًا (فرق أقل من min_diff) من القيمة السابقة،
