@@ -147,7 +147,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
         albums = group_albums(batch)
         sorted_albums = sorted(albums.items(), key=lambda item: min(m.id for m in item[1]))
         for album_id, msgs in sorted_albums:
-            print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}")
+            print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}, ✅تأخير: {delay} ثانية")
             await send_album(client, dest_chat.id, source_chat.id, msgs)
             await asyncio.sleep(get_random_delay())
         print(f"⚡ تم معالجة دفعة من {len(batch)} رسالة")
