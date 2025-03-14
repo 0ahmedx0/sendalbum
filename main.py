@@ -147,11 +147,12 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
         albums = group_albums(batch)
         sorted_albums = sorted(albums.items(), key=lambda item: min(m.id for m in item[1]))
         for album_id, msgs in sorted_albums:
+            # توليد وطباعة وقت التأخير قبل إرسال الألبوم الحالي
+            delay = get_random_delay()
+            print(f"⏳ سيتم الانتظار {delay} ثانية قبل إرسال هذا الألبوم")
+            await asyncio.sleep(delay)
             print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}")
             await send_album(client, dest_chat.id, source_chat.id, msgs)
-            delay = get_random_delay()
-            print(f"⏳ وقت التأخير لهذه الألبوم: {delay} ثانية")
-            await asyncio.sleep(delay)
         print(f"⚡ تم معالجة دفعة من {len(batch)} رسالة")
     
     print("✅ الانتهاء من نقل جميع الألبومات!")
