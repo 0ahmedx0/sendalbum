@@ -153,7 +153,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     
     for album in albums:
         delay = get_random_delay()
-        print(f"⏳ سيتم الانتظار {delay} ثانية قبل إرسال ألبوم يحتوي على الرسائل {[m.id for m in album]}")
+        print(f"⏳ سيتم الانتظار {delay} ثانية قبل إرسال ألبوم يحتوي على الرسائل \n {[m.id for m in album]}")
         await asyncio.sleep(delay)
         await send_album(client, dest_chat.id, source_chat.id, album)
     
