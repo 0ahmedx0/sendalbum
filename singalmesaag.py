@@ -151,12 +151,12 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     albums = list(chunk_messages(selected_messages, ALBUM_CHUNK_SIZE))
     print(f"🔍 سيتم إرسال {len(albums)} ألبوم(ات)")
     
-    for album in albums:
+    for i, album in enumerate(albums, start=1):
         delay = get_random_delay()
-        print(f"⏳ سيتم الانتظار {delay} ثانية قبل إرسال ألبوم يحتوي على الرسائل \n {[m.id for m in album]}")
+        print(f"ألبوم رقم {i}: ⏳ سيتم الانتظار {delay} ثانية قبل إرسال ألبوم يحتوي على الرسائل \n {[m.id for m in album]}")
         await asyncio.sleep(delay)
         await send_album(client, dest_chat.id, source_chat.id, album)
-    
+        
     print("✅ الانتهاء من إرسال جميع الألبومات!")
 
 async def main():
