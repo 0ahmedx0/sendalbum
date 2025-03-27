@@ -3,7 +3,7 @@ import os
 import random
 from dotenv import load_dotenv
 from pyrogram import Client, errors
-from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
+from pyrogram.types import InputMediaPhoto, InputMediaVideo
 
 # تحميل الإعدادات من ملف .env
 load_dotenv()
@@ -72,13 +72,9 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
             media = InputMediaPhoto(msg.photo.file_id)
         elif msg.video:
             media = InputMediaVideo(msg.video.file_id, supports_streaming=True)
-        elif msg.document:
-            if msg.document.mime_type.startswith('video/'):
-                media = InputMediaVideo(msg.document.file_id, supports_streaming=True)
-            else:
-                media = InputMediaDocument(msg.document.file_id)
         else:
-            continue
+            continue  # تخطي الرسائل التي لا تحتوي على صورة أو فيديو
+
         # إضافة التعليق في العنصر الأول فقط إن وجد
         if idx == 0 and msg.caption:
             media.caption = msg.caption
@@ -113,8 +109,8 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
 async def process_channel(client: Client, source_invite: str, dest_invite: str):
     """
     ينضم إلى القناتين، يجلب الرسائل ضمن النطاق المحدد،
-    يصفي الرسائل غير الموجودة ضمن ألبومات والتي تحتوي على وسائط،
-    يأخذ أول 1000 رسالة، يقسمها إلى دفعات (كل دفعة تصل إلى 10 رسائل)
+    يصفي الرسائل غير الموجودة ضمن ألبومات والتي تحتوي على وسائط (يستبعد المستندات الآن)،
+    يأخذ أول TARGET_MESSAGES_COUNT رسالة، يقسمها إلى دفعات (كل دفعة تصل إلى 10 رسائل)
     ويقوم بإرسال كل دفعة كألبوم متبوعاً برابط الرسالة الأولى الأصلية.
     """
     try:
@@ -139,11 +135,11 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     all_messages = await fetch_messages_in_range(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
     print(f"🔍 تم جلب {len(all_messages)} رسالة ضمن النطاق")
     
-    # تصفية الرسائل التي ليست ضمن ألبوم وتحتوي على وسائط (صورة أو فيديو أو مستند)
-    non_album_messages = [m for m in all_messages if not m.media_group_id and (m.photo or m.video or m.document)]
-    print(f"🔍 تم العثور على {len(non_album_messages)} رسالة غير ضمن ألبوم تحتوي على وسائط")
+    # تصفية الرسائل التي ليست ضمن ألبوم وتحتوي على وسائط (صور أو فيديو) مع استبعاد المستندات
+    non_album_messages = [m for m in all_messages if not m.media_group_id and (m.photo or m.video)]
+    print(f"🔍 تم العثور على {len(non_album_messages)} رسالة غير ضمن ألبوم تحتوي على وسائط (مستبعدة المستندات)")
     
-    # أخذ أول 1000 رسالة فقط
+    # أخذ أول TARGET_MESSAGES_COUNT رسالة فقط
     selected_messages = non_album_messages[:TARGET_MESSAGES_COUNT]
     print(f"🔍 سيتم تحويل {len(selected_messages)} رسالة إلى ألبومات")
     
