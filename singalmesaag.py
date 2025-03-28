@@ -68,16 +68,21 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
     """
     media_group = []
     for idx, msg in enumerate(messages):
+        media = None
         if msg.photo:
             media = InputMediaPhoto(msg.photo.file_id)
         elif msg.video:
             media = InputMediaVideo(msg.video.file_id, supports_streaming=True)
-        else:
-            continue  # تخطي الرسائل التي لا تحتوي على صورة أو فيديو
+        elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("video/"):
+            # تحويل المستند إلى فيديو قابل للبث
+            media = InputMediaVideo(msg.document.file_id, supports_streaming=True)
 
-        # إضافة التعليق في العنصر الأول فقط إن وجد
+        if not media:
+            continue  # تخطي الرسائل غير المدعومة
+
         if idx == 0 and msg.caption:
             media.caption = msg.caption
+
         media_group.append(media)
 
     if not media_group:
