@@ -63,7 +63,7 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
             media = InputMediaVideo(msg.video.file_id, supports_streaming=True)
         else:
             continue
-        
+
         if idx == 0 and msg.caption:
             media.caption = msg.caption
 
@@ -112,14 +112,18 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     print("🔍 جاري جلب جميع الرسائل في النطاق المحدد...")
     all_messages = await fetch_messages_in_range(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
     print(f"🔍 تم جلب {len(all_messages)} رسالة ضمن النطاق")
-    
-    # التصفية هنا: فقط الصور، أو الفيديوهات التي تحتوي على صورة مصغّرة، وغير تابعة لألبوم
+
+    # تصفية الصور والفيديوهات اللي فيها thumbnail فقط
     non_album_messages = [
         m for m in all_messages
         if not m.media_group_id and (
             m.photo or (m.video and m.video.thumbs)
         )
     ]
+
+    excluded_messages = len(all_messages) - len(non_album_messages)
+
+    print(f"🧹 تم استبعاد {excluded_messages} رسالة لا تحتوي على وسائط مطلوبة")
     print(f"🔍 تم العثور على {len(non_album_messages)} رسالة غير ضمن ألبوم تحتوي على وسائط (مستبعدة المستندات)")
 
     selected_messages = non_album_messages[:TARGET_MESSAGES_COUNT]
@@ -128,13 +132,23 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     albums = list(chunk_messages(selected_messages, ALBUM_CHUNK_SIZE))
     print(f"🔍 سيتم إرسال {len(albums)} ألبوم(ات)")
 
+    albums_sent = 0
     for i, album in enumerate(albums, start=1):
         delay = get_random_delay()
         print(f"ألبوم رقم {i}: ⏳ سيتم الانتظار {delay} ثانية قبل إرسال ألبوم يحتوي على الرسائل \n {[m.id for m in album]}")
         await asyncio.sleep(delay)
         await send_album(client, dest_chat.id, source_chat.id, album)
-        
+        albums_sent += 1
+
     print("✅ الانتهاء من إرسال جميع الألبومات!")
+
+    # 🔚 ملخص التنفيذ
+    print("\n🔚 ====== ملخص التنفيذ ======")
+    print(f"📦 عدد الرسائل الإجمالي التي تم جلبها: {len(all_messages)}")
+    print(f"🧹 عدد الرسائل التي تم استبعادها: {excluded_messages}")
+    print(f"🎯 عدد الرسائل التي تم استخدامها في الألبومات: {len(selected_messages)}")
+    print(f"📸 عدد الألبومات التي تم إرسالها: {albums_sent}")
+    print("✅ تمت العملية بنجاح.")
 
 async def main():
     async with Client(
