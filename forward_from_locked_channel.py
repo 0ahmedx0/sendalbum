@@ -9,11 +9,11 @@ SESSION = os.getenv("SESSION", "YOUR_SESSION_STRING")
 
 # إعدادات القنوات
 SOURCE_CHANNEL = "-1002236961858"  # معرف القناة المقيدة (بدون username)
-DEST_CHANNEL = "@your_channel_username"  # معرف قناتك (يُفضل username أو ID إذا خاصة)
+DEST_CHANNEL = "@tlop90"  # معرف قناتك (يُفضل username أو ID إذا خاصة)
 
 # المدى الزمني للرسائل
-FIRST_MSG_ID = 1601
-LAST_MSG_ID = 1650
+FIRST_MSG_ID = 1
+LAST_MSG_ID = 100
 
 async def main():
     async with Client("forwarder", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as app:
