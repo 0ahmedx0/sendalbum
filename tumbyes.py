@@ -11,8 +11,8 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")
-SOURCE_INVITE = os.getenv("CHANNEL_ID")
-DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
+SOURCE_CHAT = os.getenv("CHANNEL_ID")       # استخدم @username أو ID فقط
+DEST_CHAT = os.getenv("CHANNEL_ID_LOG")     # استخدم @username أو ID فقط
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 TARGET_MESSAGES_COUNT = 2000
@@ -90,30 +90,28 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
     except Exception as e:
         print(f"⚠️ فشل إرسال الألبوم: {str(e)}")
 
-async def process_channel(client: Client, source_invite: str, dest_invite: str):
+async def process_channel(client: Client, source_chat_ref: str, dest_chat_ref: str):
+    # محاولة الاتصال بالقناة المصدر
     try:
-        source_chat = await client.join_chat(source_invite)
+        source_chat = await client.get_chat(source_chat_ref)
         print("✅ تم الاتصال بالقناة المصدر")
-    except errors.UserAlreadyParticipant:
-        source_chat = await client.get_chat(source_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة المصدر")
-    
+    except Exception as e:
+        print(f"❌ فشل الاتصال بالقناة المصدر: {str(e)}")
+        return
+
+    # محاولة الاتصال بالقناة الوجهة
     try:
-        dest_chat = await client.join_chat(dest_invite)
+        dest_chat = await client.get_chat(dest_chat_ref)
         print("✅ تم الاتصال بالقناة الوجهة")
-    except errors.FloodWait as e:
-        print(f"⚠️ FloodWait: الانتظار {e.value} ثانية قبل إعادة المحاولة للقناة الوجهة.")
-        await asyncio.sleep(e.value + 5)
-        dest_chat = await client.join_chat(dest_invite)
-    except errors.UserAlreadyParticipant:
-        dest_chat = await client.get_chat(dest_invite)
-        print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
-    
+    except Exception as e:
+        print(f"❌ فشل الاتصال بالقناة الوجهة: {str(e)}")
+        return
+
     print("🔍 جاري جلب جميع الرسائل في النطاق المحدد...")
     all_messages = await fetch_messages_in_range(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
     print(f"🔍 تم جلب {len(all_messages)} رسالة ضمن النطاق")
 
-    # تصفية الصور والفيديوهات اللي فيها thumbnail فقط
+    # تصفية الصور والفيديوهات
     non_album_messages = [
         m for m in all_messages
         if not m.media_group_id and (
@@ -124,7 +122,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     excluded_messages = len(all_messages) - len(non_album_messages)
 
     print(f"🧹 تم استبعاد {excluded_messages} رسالة لا تحتوي على وسائط مطلوبة")
-    print(f"🔍 تم العثور على {len(non_album_messages)} رسالة غير ضمن ألبوم تحتوي على وسائط (مستبعدة المستندات)")
+    print(f"🔍 تم العثور على {len(non_album_messages)} رسالة غير ضمن ألبوم تحتوي على وسائط")
 
     selected_messages = non_album_messages[:TARGET_MESSAGES_COUNT]
     print(f"🔍 سيتم تحويل {len(selected_messages)} رسالة إلى ألبومات")
@@ -158,7 +156,7 @@ async def main():
         session_string=SESSION
     ) as client:
         print("🚀 بدء تشغيل البوت...")
-        await process_channel(client, SOURCE_INVITE, DEST_INVITE)
+        await process_channel(client, SOURCE_CHAT, DEST_CHAT)
 
 if __name__ == "__main__":
     print("🔹 جاري تهيئة النظام...")
