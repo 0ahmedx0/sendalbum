@@ -22,7 +22,7 @@ DELAY_MAX = 90
 MIN_DIFF = 30
 
 prev_delay = None
-
+print("CHANNEL_ID type:", type(CHANNEL_ID))
 def get_random_delay(min_delay=DELAY_MIN, max_delay=DELAY_MAX, min_diff=MIN_DIFF):
     global prev_delay
     delay = random.randint(min_delay, max_delay)
