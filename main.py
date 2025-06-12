@@ -21,7 +21,7 @@ DELAY_BETWEEN_ALBUMS = int(os.getenv("DELAY_BETWEEN_ALBUMS", ""))  # تأخير 
 # متغير لتخزين آخر قيمة تأخير مستخدمة
 prev_delay = None
 
-def get_random_delay(min_delay=5, max_delay=30, min_diff=8):
+def get_random_delay(min_delay=5, max_delay=40, min_diff=10):
         """
         تُولد قيمة تأخير عشوائية بين min_delay و max_delay.
         إذا كانت القيمة الجديدة قريبة جدًا (فرق أقل من min_diff) من القيمة السابقة،
