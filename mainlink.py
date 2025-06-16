@@ -16,8 +16,6 @@ FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 BATCH_SIZE = 2000  # حجم كل دفعة من الرسائل
 
-prev_delay = None
-
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     messages = []
     offset_id = last_id + 1
@@ -89,16 +87,24 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
             album_links.append(link)
             print(f"🔗 تم استخراج رابط ألبوم: {link}")
 
-            # كل 50 رابط، أرسلهم في رسالة واحدة
-            if len(album_links) % 50 == 0:
-                text = "\n".join(album_links[-50:])
+            # كل 20 رابط، أرسلهم في رسالة واحدة
+            if len(album_links) % 20 == 0:
+                numbered_links = [
+                    f"{i+1}. {link}\n"
+                    for i, link in enumerate(album_links[-20:])
+                ]
+                text = "\n".join(numbered_links)
                 await client.send_message(dest_chat.id, text)
                 print(f"📤 تم إرسال مجموعة روابط ({len(album_links)}) إلى القناة الوجهة")
 
     # إرسال ما تبقى (إن وجد)
-    remaining = len(album_links) % 50
+    remaining = len(album_links) % 20
     if remaining:
-        text = "\n".join(album_links[-remaining:])
+        numbered_links = [
+            f"{len(album_links) - remaining + i + 1}. {link}\n"
+            for i, link in enumerate(album_links[-remaining:])
+        ]
+        text = "\n".join(numbered_links)
         await client.send_message(dest_chat.id, text)
         print(f"📤 تم إرسال آخر مجموعة روابط ({remaining}) إلى القناة الوجهة")
 
