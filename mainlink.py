@@ -87,7 +87,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
             album_links.append(link)
             print(f"🔗 تم استخراج رابط ألبوم: {link}")
 
-            # كل 20 رابط، أرسلهم في رسالة واحدة
+            # كل 20 رابط، أرسلهم في رسالة واحدة مع تأخير 5 ثواني
             if len(album_links) % 20 == 0:
                 numbered_links = [
                     f"{i+1}. {link}\n"
@@ -96,6 +96,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
                 text = "\n".join(numbered_links)
                 await client.send_message(dest_chat.id, text)
                 print(f"📤 تم إرسال مجموعة روابط ({len(album_links)}) إلى القناة الوجهة")
+                await asyncio.sleep(5)  # ← تأخير 5 ثواني بعد كل دفعة
 
     # إرسال ما تبقى (إن وجد)
     remaining = len(album_links) % 20
