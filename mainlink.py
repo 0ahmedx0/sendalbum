@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 from dotenv import load_dotenv
 from pyrogram import Client, errors
 
@@ -14,15 +15,6 @@ DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 BATCH_SIZE = 2000  # حجم كل دفعة من الرسائل
-
-async def get_chat_safe(client, identifier):
-    try:
-        if identifier.startswith("-100"):
-            return await client.get_chat(identifier)
-        else:
-            return await client.join_chat(identifier)
-    except errors.UserAlreadyParticipant:
-        return await client.get_chat(identifier)
 
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     messages = []
@@ -63,11 +55,23 @@ def build_link(chat_id, msg_id):
     return f"https://t.me/c/{channel_part}/{msg_id}"
 
 async def process_channel(client: Client, source_invite: str, dest_invite: str):
-    source_chat = await get_chat_safe(client, source_invite)
-    print(f"✅ تم الاتصال بالقناة المصدر: {source_chat.id}")
-
-    dest_chat = await get_chat_safe(client, dest_invite)
-    print(f"✅ تم الاتصال بالقناة الوجهة: {dest_chat.id}")
+    try:
+        source_chat = await client.join_chat(source_invite)
+        print("✅ تم الاتصال بالقناة المصدر")
+    except errors.UserAlreadyParticipant:
+        source_chat = await client.get_chat(source_invite)
+        print("✅ الحساب مشارك مسبقاً في القناة المصدر")
+    
+    try:
+        dest_chat = await client.join_chat(dest_invite)
+        print("✅ تم الاتصال بالقناة الوجهة")
+    except errors.FloodWait as e:
+        print(f"⚠️ FloodWait: الانتظار {e.value} ثانية قبل إعادة المحاولة.")
+        await asyncio.sleep(e.value + 5)
+        dest_chat = await client.join_chat(dest_invite)
+    except errors.UserAlreadyParticipant:
+        dest_chat = await client.get_chat(dest_invite)
+        print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
 
     print("🔍 جاري جلب جميع الرسائل في النطاق المحدد...")
     all_messages = await fetch_messages_in_range(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
@@ -83,28 +87,27 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
             album_links.append(link)
             print(f"🔗 تم استخراج رابط ألبوم: {link}")
 
+            # كل 20 رابط، أرسلهم في رسالة واحدة مع تأخير 5 ثواني
             if len(album_links) % 20 == 0:
-                start_index = len(album_links) - 20
                 numbered_links = [
-                    f"{start_index + i + 1}. {link}\n"
+                    f"{i+1}. {link}\n"
                     for i, link in enumerate(album_links[-20:])
                 ]
                 text = "\n".join(numbered_links)
                 await client.send_message(dest_chat.id, text)
-                print(f"📤 تم إرسال دفعة روابط ({len(album_links)}) إلى القناة الوجهة")
+                print(f"📤 تم إرسال مجموعة روابط ({len(album_links)}) إلى القناة الوجهة")
                 await asyncio.sleep(5)  # ← تأخير 5 ثواني بعد كل دفعة
 
-    # إرسال المتبقي إن وجد
+    # إرسال ما تبقى (إن وجد)
     remaining = len(album_links) % 20
     if remaining:
-        start_index = len(album_links) - remaining
         numbered_links = [
-            f"{start_index + i + 1}. {link}\n"
+            f"{len(album_links) - remaining + i + 1}. {link}\n"
             for i, link in enumerate(album_links[-remaining:])
         ]
         text = "\n".join(numbered_links)
         await client.send_message(dest_chat.id, text)
-        print(f"📤 تم إرسال آخر دفعة روابط ({remaining}) إلى القناة الوجهة")
+        print(f"📤 تم إرسال آخر مجموعة روابط ({remaining}) إلى القناة الوجهة")
 
     print("✅ اكتملت العملية بنجاح!")
 
