@@ -15,6 +15,15 @@ FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
 BATCH_SIZE = 2000  # حجم كل دفعة من الرسائل
 
+async def get_chat_safe(client, identifier):
+    try:
+        if identifier.startswith("-100"):
+            return await client.get_chat(identifier)
+        else:
+            return await client.join_chat(identifier)
+    except errors.UserAlreadyParticipant:
+        return await client.get_chat(identifier)
+
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     messages = []
     offset_id = last_id + 1
@@ -54,11 +63,10 @@ def build_link(chat_id, msg_id):
     return f"https://t.me/c/{channel_part}/{msg_id}"
 
 async def process_channel(client: Client, source_invite: str, dest_invite: str):
-    # استخدام get_chat مباشرة
-    source_chat = await client.get_chat(source_invite)
+    source_chat = await get_chat_safe(client, source_invite)
     print(f"✅ تم الاتصال بالقناة المصدر: {source_chat.id}")
 
-    dest_chat = await client.get_chat(dest_invite)
+    dest_chat = await get_chat_safe(client, dest_invite)
     print(f"✅ تم الاتصال بالقناة الوجهة: {dest_chat.id}")
 
     print("🔍 جاري جلب جميع الرسائل في النطاق المحدد...")
@@ -75,7 +83,6 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
             album_links.append(link)
             print(f"🔗 تم استخراج رابط ألبوم: {link}")
 
-            # كل 20 رابط، أرسلهم في رسالة واحدة مع ترقيم وفاصل سطر
             if len(album_links) % 20 == 0:
                 start_index = len(album_links) - 20
                 numbered_links = [
@@ -87,7 +94,7 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
                 print(f"📤 تم إرسال دفعة روابط ({len(album_links)}) إلى القناة الوجهة")
                 await asyncio.sleep(5)  # ← تأخير 5 ثواني بعد كل دفعة
 
-    # إرسال ما تبقى (إن وجد)
+    # إرسال المتبقي إن وجد
     remaining = len(album_links) % 20
     if remaining:
         start_index = len(album_links) - remaining
