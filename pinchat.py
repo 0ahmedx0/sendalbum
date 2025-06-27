@@ -77,7 +77,7 @@ async def pin_albums(client: Client, channel_id: str, albums: dict):
 async def main():
     async with Client("album_pinner", api_id=API_ID, api_hash=API_HASH, session_string=SESSION) as client:
         print("🚀 بدء فحص القناة...")
-        chat = await client.get_chat(TARGET_CHANNEL)
+        chat = await client.join_chat(TARGET_CHANNEL)
         messages = await fetch_messages_in_range(client, chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
         print(f"📦 تم العثور على {len(messages)} رسالة.")
         albums = group_albums(messages)
