@@ -107,3 +107,27 @@ async def process_channel(client: Client, source_id: int, dest_id: int):
 
     for batch in chunk_messages(all_messages, BATCH_SIZE):
         albums = group_albums(batch)
+        sorted_albums = sorted(albums.items(), key=lambda item: min(m.id for m in item[1]))
+        for album_id, msgs in sorted_albums:
+            print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}")
+            delay = get_random_delay()
+            print(f"⏳ الانتظار {delay} ثانية قبل إرسال الألبوم التالي...")
+            await asyncio.sleep(delay)
+            await send_album(client, dest_chat.id, source_chat.id, msgs)
+        print(f"⚡ تم معالجة دفعة من {len(batch)} رسالة")
+
+    print("✅ الانتهاء من نقل جميع الألبومات!")
+
+async def main():
+    async with Client(
+        name="media_transfer_bot",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        bot_token=BOT_TOKEN
+    ) as client:
+        print("🚀 بدء تشغيل البوت...")
+        await process_channel(client, SOURCE_ID, DEST_ID)
+
+if __name__ == "__main__":
+    print("🔹 جاري تهيئة النظام...")
+    asyncio.run(main())
