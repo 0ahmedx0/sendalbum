@@ -10,21 +10,18 @@ load_dotenv()
 
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # استخدام توكن البوت
-SOURCE_INVITE = os.getenv("CHANNEL_ID")        # معرف القناة المصدر
-DEST_INVITE = os.getenv("CHANNEL_ID_LOG")      # معرف القناة الوجهة
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SOURCE_INVITE = os.getenv("CHANNEL_ID")
+DEST_INVITE = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", ""))
-BATCH_SIZE = 2000
+BATCH_SIZE = 1000
 
-# إعدادات التأخير العشوائي بين الألبومات
-MIN_DELAY = 5
-MAX_DELAY = 40
-MIN_DIFF = 10
+# متغير لتخزين آخر قيمة تأخير عشوائي
 prev_delay = None
 
-def get_random_delay(min_delay=MIN_DELAY, max_delay=MAX_DELAY, min_diff=MIN_DIFF):
-    """توليد وقت تأخير عشوائي بفارق مناسب عن السابق"""
+def get_random_delay(min_delay=5, max_delay=40, min_diff=10):
+    """توليد تأخير عشوائي مع التأكد أن الفرق مع السابق لا يقل عن min_diff"""
     global prev_delay
     delay = random.randint(min_delay, max_delay)
     while prev_delay is not None and abs(delay - prev_delay) < min_diff:
@@ -33,7 +30,6 @@ def get_random_delay(min_delay=MIN_DELAY, max_delay=MAX_DELAY, min_diff=MIN_DIFF
     return delay
 
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
-    """جلب الرسائل من القناة ضمن نطاق معرف الرسائل المحدد"""
     messages = []
     offset_id = last_id + 1
     while True:
@@ -53,12 +49,10 @@ async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, l
     return messages
 
 def chunk_messages(messages, chunk_size):
-    """تقسيم الرسائل إلى دفعات"""
     for i in range(0, len(messages), chunk_size):
         yield messages[i:i+chunk_size]
 
 def group_albums(messages):
-    """تجميع الرسائل التي تنتمي إلى نفس media_group_id (ألبوم)"""
     albums = {}
     for msg in messages:
         if msg.media_group_id:
@@ -66,8 +60,7 @@ def group_albums(messages):
     return albums
 
 async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, messages: list):
-    """إرسال ألبوم إلى القناة الوجهة"""
-    album_messages = messages
+    album_messages = messages  
     media_group = []
     for idx, msg in enumerate(album_messages):
         if msg.photo:
@@ -75,7 +68,7 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
         elif msg.video:
             media = InputMediaVideo(msg.video.file_id, supports_streaming=True)
         elif msg.document:
-            if msg.document.mime_type and msg.document.mime_type.startswith('video/'):
+            if msg.document.mime_type.startswith('video/'):
                 media = InputMediaVideo(msg.document.file_id, supports_streaming=True)
             else:
                 media = InputMediaDocument(msg.document.file_id)
@@ -84,11 +77,6 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
         if idx == 0 and msg.caption:
             media.caption = msg.caption
         media_group.append(media)
-
-    if not media_group:
-        print("⚠️ لم يتم العثور على وسائط صالحة في هذا الألبوم.")
-        return
-
     try:
         await client.send_media_group(dest_chat_id, media_group)
         print(f"✅ تم إرسال ألبوم يحتوي على الرسائل: {[msg.id for msg in album_messages]}")
@@ -100,14 +88,13 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
         print(f"⚠️ فشل إرسال الألبوم: {str(e)}")
 
 async def process_channel(client: Client, source_invite: str, dest_invite: str):
-    """الانضمام للقنوات وجلب الرسائل ثم إرسال الألبومات مع تأخير عشوائي"""
     try:
         source_chat = await client.join_chat(source_invite)
         print("✅ تم الاتصال بالقناة المصدر")
     except errors.UserAlreadyParticipant:
         source_chat = await client.get_chat(source_invite)
         print("✅ الحساب مشارك مسبقاً في القناة المصدر")
-
+    
     try:
         dest_chat = await client.join_chat(dest_invite)
         print("✅ تم الاتصال بالقناة الوجهة")
@@ -118,22 +105,22 @@ async def process_channel(client: Client, source_invite: str, dest_invite: str):
     except errors.UserAlreadyParticipant:
         dest_chat = await client.get_chat(dest_invite)
         print("✅ الحساب مشارك مسبقاً في القناة الوجهة")
-
+    
     print("🔍 جاري جلب جميع الرسائل في النطاق المحدد...")
     all_messages = await fetch_messages_in_range(client, source_chat.id, FIRST_MSG_ID, LAST_MESSAGE_ID)
     print(f"🔍 تم جلب {len(all_messages)} رسالة ضمن النطاق")
-
+    
     for batch in chunk_messages(all_messages, BATCH_SIZE):
         albums = group_albums(batch)
         sorted_albums = sorted(albums.items(), key=lambda item: min(m.id for m in item[1]))
         for album_id, msgs in sorted_albums:
-            delay = get_random_delay()
-            print(f"⏳ سيتم الانتظار {delay} ثانية قبل إرسال الألبوم {album_id}")
-            await asyncio.sleep(delay)
             print(f"📂 ألبوم {album_id} يحتوي على الرسائل: {[m.id for m in msgs]}")
+            delay = get_random_delay()
+            print(f"⏳ الانتظار {delay} ثانية قبل إرسال الألبوم التالي...")
+            await asyncio.sleep(delay)
             await send_album(client, dest_chat.id, source_chat.id, msgs)
         print(f"⚡ تم معالجة دفعة من {len(batch)} رسالة")
-
+    
     print("✅ الانتهاء من نقل جميع الألبومات!")
 
 async def main():
@@ -141,7 +128,7 @@ async def main():
         name="media_transfer_bot",
         api_id=API_ID,
         api_hash=API_HASH,
-        bot_token=BOT_TOKEN  # استخدام توكن البوت
+        bot_token=BOT_TOKEN
     ) as client:
         print("🚀 بدء تشغيل البوت...")
         await process_channel(client, SOURCE_INVITE, DEST_INVITE)
