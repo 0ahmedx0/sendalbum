@@ -17,7 +17,7 @@ LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "0"))
 # متغير لتخزين آخر تأخير عشوائي
 prev_delay = None
 
-def get_random_delay(min_delay=3, max_delay=10, min_diff=2):
+def get_random_delay(min_delay=3, max_delay=20, min_diff=3):
     global prev_delay
     delay = random.randint(min_delay, max_delay)
     while prev_delay is not None and abs(delay - prev_delay) < min_diff:
