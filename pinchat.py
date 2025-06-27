@@ -10,7 +10,7 @@ load_dotenv()
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 SESSION = os.getenv("SESSION")
-TARGET_CHANNEL = os.getenv("CHANNEL_ID")
+TARGET_CHANNEL = os.getenv("CHANNEL_ID_LOG")
 FIRST_MSG_ID = int(os.getenv("FIRST_MSG_ID", "1"))
 LAST_MESSAGE_ID = int(os.getenv("LAST_MESSAGE_ID", "0"))
 
