@@ -58,7 +58,7 @@ async def pin_albums(client: Client, channel_id: str, albums: dict):
         first_msg = msgs[0]
 
         # ⏳ توليد تأخير عشوائي
-        delay = get_random_delay()
+        delay = 60
         print(f"⏳ سيتم الانتظار {delay} ثانية قبل تثبيت الرسالة {first_msg.id}")
         await asyncio.sleep(delay)
 
