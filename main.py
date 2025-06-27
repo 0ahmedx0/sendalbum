@@ -4,7 +4,7 @@ import random
 from dotenv import load_dotenv
 from pyrogram import Client, errors
 from pyrogram.types import InputMediaPhoto, InputMediaVideo, InputMediaDocument
-prev_delay = None
+
 # تحميل الإعدادات من ملف .env
 load_dotenv()
 
@@ -22,17 +22,17 @@ DELAY_BETWEEN_ALBUMS = int(os.getenv("DELAY_BETWEEN_ALBUMS", ""))  # تأخير 
 prev_delay = None
 
 def get_random_delay(min_delay=5, max_delay=40, min_diff=10):
-        """
-        تُولد قيمة تأخير عشوائية بين min_delay و max_delay.
-        إذا كانت القيمة الجديدة قريبة جدًا (فرق أقل من min_diff) من القيمة السابقة،
-        يتم إعادة التوليد.
-        """
-        global prev_delay
+    """
+    تُولد قيمة تأخير عشوائية بين min_delay و max_delay.
+    إذا كانت القيمة الجديدة قريبة جدًا (فرق أقل من min_diff) من القيمة السابقة،
+    يتم إعادة التوليد.
+    """
+    global prev_delay
+    delay = random.randint(min_delay, max_delay)
+    while prev_delay is not None and abs(delay - prev_delay) < min_diff:
         delay = random.randint(min_delay, max_delay)
-        while prev_delay is not None and abs(delay - prev_delay) < min_diff:
-            delay = random.randint(min_delay, max_delay)
-        prev_delay = delay
-        return delay
+    prev_delay = delay
+    return delay
 
 async def fetch_messages_in_range(client: Client, chat_id: int, first_id: int, last_id: int):
     """
@@ -76,9 +76,7 @@ def group_albums(messages):
 async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, messages: list):
     """
     يُجهز الرسائل ضمن الألبوم ويرسلها باستخدام send_media_group.
-    بعد نجاح الإرسال، يُرسل رابط أي رسالة (الأولى) من الألبوم.
     """
-    # لا نقوم بفرز الرسائل هنا لتسريع العملية؛ نستخدم الرسالة الأولى كما هي
     album_messages = messages  
     media_group = []
     for idx, msg in enumerate(album_messages):
@@ -99,15 +97,6 @@ async def send_album(client: Client, dest_chat_id: int, source_chat_id: int, mes
     try:
         await client.send_media_group(dest_chat_id, media_group)
         print(f"✅ تم إرسال ألبوم يحتوي على الرسائل: {[msg.id for msg in album_messages]}")
-        # استخدام الرسالة الأولى لبناء الرابط
-        first_msg_id = album_messages[0].id
-        src = str(source_chat_id)
-        if src.startswith("-100"):
-            channel_part = src[4:]
-        else:
-            channel_part = src
-        link = f"https://t.me/c/{channel_part}/{first_msg_id}"
-        await client.send_message(dest_chat_id, f"📌 رابط الرسالة: {link}")
     except errors.FloodWait as e:
         print(f"⏳ FloodWait: الانتظار {e.value} ثانية...")
         await asyncio.sleep(e.value + 5)
